@@ -1,4 +1,4 @@
-import { useMemo, useReducer } from "react";
+import { Fragment, useMemo, useReducer } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8000";
@@ -11,6 +11,8 @@ type StageName =
   | "composition_brief"
   | "cover_direction"
   | "audio_render";
+type AppSection = "workspace" | "library";
+type WorkspaceMode = "seeded" | "user";
 
 type StageSnapshot = {
   status: StageStatus;
@@ -37,9 +39,18 @@ type TaskSnapshot = {
   updatedAt?: string;
 };
 
-type WorkspaceMode = "seeded" | "user";
+type LibraryWork = {
+  id: string;
+  title: string;
+  coverUrl: string;
+  sourceTitle: string;
+  createdAt: string;
+  activeStyle: string;
+  hasAudio: boolean;
+};
 
 type UiState = {
+  section: AppSection;
   mode: WorkspaceMode;
   selectedStage: StageName;
   title: string;
@@ -47,6 +58,7 @@ type UiState = {
 };
 
 type UiAction =
+  | { type: "select-section"; section: AppSection }
   | { type: "select-stage"; stage: StageName }
   | { type: "set-title"; value: string }
   | { type: "set-synopsis"; value: string }
@@ -160,6 +172,8 @@ const SEEDED_EXAMPLE: TaskSnapshot = {
 
 function reducer(state: UiState, action: UiAction): UiState {
   switch (action.type) {
+    case "select-section":
+      return { ...state, section: action.section };
     case "select-stage":
       return { ...state, selectedStage: action.stage };
     case "set-title":
@@ -167,7 +181,7 @@ function reducer(state: UiState, action: UiAction): UiState {
     case "set-synopsis":
       return { ...state, synopsis: action.value };
     case "enter-user-workspace":
-      return { ...state, mode: "user" };
+      return { ...state, mode: "user", section: "workspace" };
     default:
       return state;
   }
@@ -191,6 +205,17 @@ async function getTask(taskId: string) {
     throw new Error("任务查询失败");
   }
   return (await response.json()) as TaskSnapshot;
+}
+
+async function getLibraryWorks() {
+  const response = await fetch(`${API_BASE}/library/works`);
+  if (response.status === 404) {
+    return [];
+  }
+  if (!response.ok) {
+    throw new Error("作品库加载失败");
+  }
+  return (await response.json()) as LibraryWork[];
 }
 
 function stageSummary(stage: StageName, snapshot: TaskSnapshot): string {
@@ -231,12 +256,26 @@ function fieldLabel(key: string): string {
   return ARTIFACT_FIELD_LABELS[key] ?? key;
 }
 
+function formatTimestamp(value: string): string {
+  const timestamp = new Date(value);
+  if (Number.isNaN(timestamp.getTime())) return value;
+  return new Intl.DateTimeFormat("zh-CN", {
+    year: "numeric",
+    month: "short",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(timestamp);
+}
+
 function renderArtifactValue(value: unknown) {
   if (Array.isArray(value)) {
     return (
       <ul className="inspector-list">
         {value.map((item, index) => (
-          <li key={`${index}-${String(item)}`}>{typeof item === "object" && item !== null ? renderArtifactValue(item) : localizeValue(item)}</li>
+          <li key={`${index}-${String(item)}`}>
+            {typeof item === "object" && item !== null ? renderArtifactValue(item) : localizeValue(item)}
+          </li>
         ))}
       </ul>
     );
@@ -272,15 +311,15 @@ function renderInspector(stage: StageName, artifact: Record<string, unknown> | n
           </div>
         ) : null}
         <dl className="inspector-kv">
-            <div>
-              <dt>封面标题</dt>
-              <dd>{localizeValue(artifact.titleLock ?? "未生成")}</dd>
-            </div>
-            <div>
-              <dt>视觉方向</dt>
-              <dd>{localizeValue(artifact.artDirection ?? "未生成")}</dd>
-            </div>
-          </dl>
+          <div>
+            <dt>封面标题</dt>
+            <dd>{localizeValue(artifact.titleLock ?? "未生成")}</dd>
+          </div>
+          <div>
+            <dt>视觉方向</dt>
+            <dd>{localizeValue(artifact.artDirection ?? "未生成")}</dd>
+          </div>
+        </dl>
       </div>
     );
   }
@@ -290,10 +329,10 @@ function renderInspector(stage: StageName, artifact: Record<string, unknown> | n
       <div className="inspector-stack">
         {artifact.audioUrl ? <audio controls src={String(artifact.audioUrl)} className="inspector-audio" /> : null}
         <dl className="inspector-kv">
-            <div>
-              <dt>版本标题</dt>
-              <dd>{localizeValue(artifact.title ?? "未生成")}</dd>
-            </div>
+          <div>
+            <dt>版本标题</dt>
+            <dd>{localizeValue(artifact.title ?? "未生成")}</dd>
+          </div>
           <div>
             <dt>试听状态</dt>
             <dd>{artifact.audioUrl ? "已生成可播放片段" : "尚未生成音频"}</dd>
@@ -309,12 +348,16 @@ function renderInspector(stage: StageName, artifact: Record<string, unknown> | n
     );
   }
 
-  return <dl className="inspector-kv">{Object.entries(artifact).map(([key, value]) => (
-    <div key={key}>
-      <dt>{fieldLabel(key)}</dt>
-      <dd>{renderArtifactValue(value)}</dd>
-    </div>
-  ))}</dl>;
+  return (
+    <dl className="inspector-kv">
+      {Object.entries(artifact).map(([key, value]) => (
+        <div key={key}>
+          <dt>{fieldLabel(key)}</dt>
+          <dd>{renderArtifactValue(value)}</dd>
+        </div>
+      ))}
+    </dl>
+  );
 }
 
 function displayStageName(stage: TaskSnapshot["currentStage"]): string {
@@ -324,6 +367,7 @@ function displayStageName(stage: TaskSnapshot["currentStage"]): string {
 
 function App() {
   const [uiState, dispatch] = useReducer(reducer, {
+    section: "workspace",
     mode: "seeded",
     selectedStage: "source_analysis",
     title: "",
@@ -348,127 +392,270 @@ function App() {
     },
   });
 
-  const activeSnapshot = uiState.mode === "seeded" || !taskQuery.data ? SEEDED_EXAMPLE : taskQuery.data;
+  const libraryQuery = useQuery({
+    queryKey: ["library-works"],
+    queryFn: getLibraryWorks,
+    enabled: uiState.section === "library",
+  });
+
+  const activeSnapshot =
+    uiState.mode === "seeded" || !taskQuery.data ? SEEDED_EXAMPLE : taskQuery.data;
 
   const selectedStageArtifact = useMemo(
     () => activeSnapshot.stages[uiState.selectedStage].artifact,
     [activeSnapshot, uiState.selectedStage],
   );
 
-  const isMobileFallback = typeof window !== "undefined" && window.innerWidth < 1024;
+  return (
+    <Fragment>
+      <main className="studio-shell">
+        <aside className="side-rail">
+          <nav className="side-nav" aria-label="主导航">
+            <button
+              type="button"
+              className={uiState.section === "workspace" ? "selected" : ""}
+              onClick={() => dispatch({ type: "select-section", section: "workspace" })}
+            >
+              <span>当前创作</span>
+              <strong>{uiState.mode === "seeded" ? "示例模式" : "进行中"}</strong>
+            </button>
+            <button
+              type="button"
+              className={uiState.section === "library" ? "selected" : ""}
+              onClick={() => dispatch({ type: "select-section", section: "library" })}
+            >
+              <span>我的作品库</span>
+              <strong>{libraryQuery.data ? `${libraryQuery.data.length} 首作品` : "作品目录"}</strong>
+            </button>
+          </nav>
+        </aside>
 
-  if (isMobileFallback) {
-    return (
+        <section className="app-shell">
+          {uiState.section === "workspace" ? (
+            <>
+              <section className="workspace-stage">
+                <form
+                  className="input-panel"
+                  onSubmit={(event) => {
+                    event.preventDefault();
+                    createMutation.mutate({ title: uiState.title, synopsis: uiState.synopsis });
+                  }}
+                >
+                  <label>
+                    影视题材
+                    <input
+                      value={uiState.title}
+                      onChange={(event) => dispatch({ type: "set-title", value: event.target.value })}
+                      placeholder="输入电影或剧名"
+                    />
+                  </label>
+                  <label>
+                    剧情简介（可选）
+                    <textarea
+                      rows={3}
+                      value={uiState.synopsis}
+                      onChange={(event) => dispatch({ type: "set-synopsis", value: event.target.value })}
+                      placeholder="补一段剧情简介，能提高题材分析稳定性"
+                    />
+                  </label>
+                  <div className="button-row">
+                    <button
+                      className="primary"
+                      type="submit"
+                      disabled={createMutation.isPending || !uiState.title.trim()}
+                    >
+                      生成当前版本
+                    </button>
+                    <button
+                      type="button"
+                      className="ghost"
+                      onClick={() => dispatch({ type: "enter-user-workspace" })}
+                    >
+                      试试我的题材
+                    </button>
+                  </div>
+                  {createMutation.error ? <p className="error-text">任务创建失败，请稍后重试。</p> : null}
+                </form>
+
+                <section className="hero-result">
+                  <div className="cover-card">
+                    {activeSnapshot.currentResult.coverUrl ? (
+                      <img src={activeSnapshot.currentResult.coverUrl} alt={activeSnapshot.currentResult.title ?? "封面"} />
+                    ) : (
+                      <div className="cover-placeholder">封面待生成</div>
+                    )}
+                  </div>
+                  <div className="result-body">
+                    <p className="eyebrow accent">{localizeValue(activeSnapshot.currentResult.activeStyle)}</p>
+                    <h2>{activeSnapshot.currentResult.title ?? "当前版本正在形成"}</h2>
+                    <p className="subtle">
+                      {activeSnapshot.input.title} · {TASK_STATUS_LABELS[activeSnapshot.status]}
+                    </p>
+                    {activeSnapshot.currentResult.audioUrl ? (
+                      <audio controls src={activeSnapshot.currentResult.audioUrl} />
+                    ) : (
+                      <div className="audio-placeholder">音频生成完成后会出现在这里</div>
+                    )}
+                  </div>
+                  <div className="status-panel">
+                    <div className="status-chip">
+                      <span>任务状态</span>
+                      <strong>{TASK_STATUS_LABELS[activeSnapshot.status]}</strong>
+                    </div>
+                    <div className="status-chip">
+                      <span>当前步骤</span>
+                      <strong>{displayStageName(activeSnapshot.currentStage)}</strong>
+                    </div>
+                    <div className="status-chip">
+                      <span>风格分支</span>
+                      <strong>{localizeValue(activeSnapshot.currentResult.activeStyle)}</strong>
+                    </div>
+                  </div>
+                </section>
+              </section>
+
+              <section className="workspace-grid">
+                <section className="panel">
+                  <header className="panel-header">
+                    <h3>创作流程</h3>
+                    <p>左侧流程行，右侧步骤详情</p>
+                  </header>
+                  <div className="workflow-layout">
+                    <div className="workflow-list">
+                      {STAGE_ORDER.map((stage) => (
+                        <button
+                          key={stage}
+                          type="button"
+                          className={`workflow-row ${uiState.selectedStage === stage ? "selected" : ""}`}
+                          onClick={() => dispatch({ type: "select-stage", stage })}
+                        >
+                          <div>
+                            <strong>{STAGE_LABELS[stage]}</strong>
+                            <p>{stageSummary(stage, activeSnapshot)}</p>
+                          </div>
+                          <span className={`state ${activeSnapshot.stages[stage].status}`}>
+                            {STAGE_STATUS_LABELS[activeSnapshot.stages[stage].status]}
+                          </span>
+                        </button>
+                      ))}
+                    </div>
+
+                    <aside className="inspector">
+                      <p className="eyebrow">步骤详情</p>
+                      <h4>{STAGE_LABELS[uiState.selectedStage]}</h4>
+                      {renderInspector(uiState.selectedStage, selectedStageArtifact)}
+                    </aside>
+                  </div>
+                </section>
+              </section>
+            </>
+          ) : (
+            <>
+              <section className="library-overview">
+                <div className="library-copy panel">
+                  <p className="eyebrow">我的作品库</p>
+                  <h2>已经完成的作品，会在这里变成可回看的作品目录。</h2>
+                  <p className="subtle">
+                    首页先按作品卡片墙展示标题、封面、生成来源和时间。创作回放会接在下一步详情里。
+                  </p>
+                </div>
+                <div className="library-summary panel">
+                  <p className="eyebrow accent">Library Snapshot</p>
+                  <strong>{libraryQuery.data ? `${libraryQuery.data.length} 首已完成作品` : "载入作品中"}</strong>
+                  <p className="subtle">按最新生成时间倒序排列，只收录完成生成的结果。</p>
+                </div>
+              </section>
+
+              {libraryQuery.isError ? (
+                <section className="panel">
+                  <p className="eyebrow">作品库异常</p>
+                  <h3>作品列表暂时没有加载出来</h3>
+                  <p className="error-text">请稍后重试，或先回到当前创作继续生成。</p>
+                </section>
+              ) : null}
+
+              {libraryQuery.isLoading ? (
+                <section className="library-grid" aria-label="作品加载中">
+                  {Array.from({ length: 6 }).map((_, index) => (
+                    <article key={index} className="library-card loading">
+                      <div className="library-card-media skeleton" />
+                      <div className="library-card-body">
+                        <div className="ghost-line long" />
+                        <div className="ghost-line medium" />
+                        <div className="ghost-line short" />
+                      </div>
+                    </article>
+                  ))}
+                </section>
+              ) : null}
+
+              {!libraryQuery.isLoading && !libraryQuery.isError && libraryQuery.data?.length ? (
+                <section className="library-grid" aria-label="作品卡片墙">
+                  {libraryQuery.data.map((work) => (
+                    <article key={work.id} className="library-card">
+                      <div className="library-card-media">
+                        <img src={work.coverUrl} alt={work.title} />
+                      </div>
+                      <div className="library-card-body">
+                        <p className="eyebrow accent">{localizeValue(work.activeStyle)}</p>
+                        <h3>{work.title}</h3>
+                        <dl className="library-meta">
+                          <div>
+                            <dt>生成来源</dt>
+                            <dd>{work.sourceTitle}</dd>
+                          </div>
+                          <div>
+                            <dt>生成时间</dt>
+                            <dd>{formatTimestamp(work.createdAt)}</dd>
+                          </div>
+                        </dl>
+                        <div className="library-card-footer">
+                          <span>{work.hasAudio ? "可播放试听" : "仅保留作品记录"}</span>
+                          <span>创作回放待接入</span>
+                        </div>
+                      </div>
+                    </article>
+                  ))}
+                </section>
+              ) : null}
+
+              {!libraryQuery.isLoading && !libraryQuery.isError && !libraryQuery.data?.length ? (
+                <section className="panel library-empty">
+                  <div className="library-empty-copy">
+                    <p className="eyebrow">作品库还是空的</p>
+                    <h3>先生成第一首作品，这里才会开始像作品集。</h3>
+                    <p className="subtle">完成生成后的作品会自动进入这里，按时间整理成可回看的卡片墙。</p>
+                    <button
+                      type="button"
+                      className="primary inline-action"
+                      onClick={() => dispatch({ type: "enter-user-workspace" })}
+                    >
+                      去生成第一首作品
+                    </button>
+                  </div>
+                  <div className="library-ghost-grid" aria-hidden="true">
+                    {Array.from({ length: 3 }).map((_, index) => (
+                      <article key={index} className="ghost-card">
+                        <div className="ghost-thumb" />
+                        <div className="ghost-line long" />
+                        <div className="ghost-line medium" />
+                        <div className="ghost-line short" />
+                      </article>
+                    ))}
+                  </div>
+                </section>
+              ) : null}
+            </>
+          )}
+        </section>
+      </main>
+
       <main className="mobile-fallback">
         <p className="eyebrow">桌面优先</p>
-        <h1>这个工作台推荐在桌面端打开</h1>
-        <p>你仍然可以先了解产品：输入影视题材，系统会把题材拆成歌曲，并把每一步创作判断显示出来。</p>
+        <h1>这个工作台推荐在更宽的窗口里打开</h1>
+        <p>当前窗口太窄时，完整创作界面会收成简化视图。把浏览器再拉宽一点，就能继续使用完整工作台。</p>
       </main>
-    );
-  }
-
-  return (
-    <main className="app-shell">
-      <section className="top-strip">
-        <div className="brand-block">
-          <p className="eyebrow">影视灵感歌曲工作台</p>
-          <h1>当前版本</h1>
-          <p className="subtle">结果先出现，创作链立刻跟上。</p>
-        </div>
-        <form
-          className="input-panel"
-          onSubmit={(event) => {
-            event.preventDefault();
-            createMutation.mutate({ title: uiState.title, synopsis: uiState.synopsis });
-          }}
-        >
-          <label>
-            影视题材
-            <input
-              value={uiState.title}
-              onChange={(event) => dispatch({ type: "set-title", value: event.target.value })}
-              placeholder="输入电影或剧名"
-            />
-          </label>
-          <label>
-            剧情简介（可选）
-            <textarea
-              rows={3}
-              value={uiState.synopsis}
-              onChange={(event) => dispatch({ type: "set-synopsis", value: event.target.value })}
-              placeholder="补一段剧情简介，能提高题材分析稳定性"
-            />
-          </label>
-          <div className="button-row">
-            <button className="primary" type="submit" disabled={createMutation.isPending || !uiState.title.trim()}>
-              生成当前版本
-            </button>
-            <button type="button" className="ghost" onClick={() => dispatch({ type: "enter-user-workspace" })}>
-              试试我的题材
-            </button>
-          </div>
-          {createMutation.error ? <p className="error-text">任务创建失败，请稍后重试。</p> : null}
-        </form>
-      </section>
-
-      <section className="hero-result">
-        <div className="cover-card">
-          {activeSnapshot.currentResult.coverUrl ? (
-            <img src={activeSnapshot.currentResult.coverUrl} alt={activeSnapshot.currentResult.title ?? "封面"} />
-          ) : (
-            <div className="cover-placeholder">封面待生成</div>
-          )}
-        </div>
-        <div className="result-body">
-          <p className="eyebrow accent">{localizeValue(activeSnapshot.currentResult.activeStyle)}</p>
-          <h2>{activeSnapshot.currentResult.title ?? "当前版本正在形成"}</h2>
-          <p className="subtle">{activeSnapshot.input.title} · {TASK_STATUS_LABELS[activeSnapshot.status]}</p>
-          {activeSnapshot.currentResult.audioUrl ? (
-            <audio controls src={activeSnapshot.currentResult.audioUrl} />
-          ) : (
-            <div className="audio-placeholder">音频生成完成后会出现在这里</div>
-          )}
-        </div>
-        <div className="status-panel">
-          <div className="status-chip"><span>任务状态</span><strong>{TASK_STATUS_LABELS[activeSnapshot.status]}</strong></div>
-          <div className="status-chip"><span>当前步骤</span><strong>{displayStageName(activeSnapshot.currentStage)}</strong></div>
-          <div className="status-chip"><span>风格分支</span><strong>{localizeValue(activeSnapshot.currentResult.activeStyle)}</strong></div>
-        </div>
-      </section>
-
-      <section className="workspace-grid">
-        <section className="panel">
-          <header className="panel-header">
-            <h3>创作流程</h3>
-            <p>左侧流程行，右侧步骤详情</p>
-          </header>
-          <div className="workflow-layout">
-            <div className="workflow-list">
-              {STAGE_ORDER.map((stage) => (
-                <button
-                  key={stage}
-                  type="button"
-                  className={`workflow-row ${uiState.selectedStage === stage ? "selected" : ""}`}
-                  onClick={() => dispatch({ type: "select-stage", stage })}
-                >
-                  <div>
-                    <strong>{STAGE_LABELS[stage]}</strong>
-                    <p>{stageSummary(stage, activeSnapshot)}</p>
-                  </div>
-                  <span className={`state ${activeSnapshot.stages[stage].status}`}>{STAGE_STATUS_LABELS[activeSnapshot.stages[stage].status]}</span>
-                </button>
-              ))}
-            </div>
-
-            <aside className="inspector">
-              <p className="eyebrow">步骤详情</p>
-              <h4>{STAGE_LABELS[uiState.selectedStage]}</h4>
-              {renderInspector(uiState.selectedStage, selectedStageArtifact)}
-            </aside>
-          </div>
-        </section>
-      </section>
-    </main>
+    </Fragment>
   );
 }
 

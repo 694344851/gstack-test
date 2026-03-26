@@ -7,7 +7,7 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
-from .db import create_task_row, get_task, init_db
+from .db import create_task_row, get_task, init_db, list_library_works
 from .orchestrator import build_task, retry_task
 
 
@@ -50,6 +50,18 @@ def serialize_task(task: dict) -> dict:
     }
 
 
+def serialize_library_work(work: dict) -> dict:
+    return {
+        "id": work["id"],
+        "title": work["title"],
+        "coverUrl": work["cover_url"],
+        "sourceTitle": work["source_title"],
+        "createdAt": work["created_at"],
+        "activeStyle": work["active_style"],
+        "hasAudio": work["has_audio"],
+    }
+
+
 @app.post("/generation-tasks")
 def create_generation_task(payload: CreateTaskRequest) -> dict:
     task_id = f"task_{uuid4().hex[:10]}"
@@ -64,6 +76,11 @@ def get_generation_task(task_id: str) -> dict:
     if task is None:
         raise HTTPException(status_code=404, detail="Task not found")
     return serialize_task(task)
+
+
+@app.get("/library/works")
+def get_library_works() -> list[dict]:
+    return [serialize_library_work(work) for work in list_library_works()]
 
 
 @app.post("/generation-tasks/{task_id}/retry")

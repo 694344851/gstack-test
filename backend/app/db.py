@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 import sqlite3
 from contextlib import contextmanager
@@ -11,6 +12,7 @@ from typing import Any
 
 DB_ENV = "GSTACK_TEST_DB_PATH"
 DEFAULT_DB = Path(__file__).resolve().parents[1] / "data" / "app.db"
+logger = logging.getLogger(__name__)
 
 
 def now_iso() -> str:
@@ -131,6 +133,58 @@ def get_task(task_id: str) -> dict[str, Any] | None:
     return row_to_task(row)
 
 
+def _row_to_library_work(row: sqlite3.Row) -> dict[str, Any]:
+    current_result = json.loads(row["current_result_json"])
+    task_input = json.loads(row["input_json"])
+
+    if not isinstance(current_result, dict) or not isinstance(task_input, dict):
+        raise ValueError("task payload must be an object")
+
+    title = current_result["title"]
+    cover_url = current_result["coverUrl"]
+    active_style = current_result["activeStyle"]
+    source_title = task_input["title"]
+
+    if not isinstance(title, str) or not title.strip():
+        raise ValueError("missing current_result.title")
+    if not isinstance(cover_url, str) or not cover_url.strip():
+        raise ValueError("missing current_result.coverUrl")
+    if not isinstance(active_style, str) or not active_style.strip():
+        raise ValueError("missing current_result.activeStyle")
+    if not isinstance(source_title, str) or not source_title.strip():
+        raise ValueError("missing input.title")
+
+    return {
+        "id": row["id"],
+        "title": title,
+        "cover_url": cover_url,
+        "source_title": source_title,
+        "created_at": row["created_at"],
+        "active_style": active_style,
+        "has_audio": bool(current_result.get("audioUrl")),
+    }
+
+
+def list_library_works() -> list[dict[str, Any]]:
+    with connect() as conn:
+        rows = conn.execute(
+            """
+            SELECT id, input_json, current_result_json, created_at
+            FROM generation_tasks
+            WHERE status = 'completed'
+            ORDER BY created_at DESC
+            """
+        ).fetchall()
+
+    works: list[dict[str, Any]] = []
+    for row in rows:
+        try:
+            works.append(_row_to_library_work(row))
+        except (KeyError, TypeError, ValueError, json.JSONDecodeError) as exc:
+            logger.warning("Skipping malformed library work for task %s: %s", row["id"], exc)
+    return works
+
+
 def claim_next_task(worker_id: str) -> dict[str, Any] | None:
     with connect() as conn:
         conn.execute("BEGIN IMMEDIATE")
@@ -159,4 +213,3 @@ def claim_next_task(worker_id: str) -> dict[str, Any] | None:
         )
         conn.commit()
         return task
-
