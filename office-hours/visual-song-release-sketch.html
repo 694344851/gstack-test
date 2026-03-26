@@ -1,0 +1,498 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Visual Song Workflow Sketch</title>
+  <style>
+    :root {
+      --bg: #f2ede3;
+      --ink: #171411;
+      --muted: #5c5247;
+      --line: rgba(40, 31, 24, 0.22);
+      --panel: rgba(255, 251, 244, 0.78);
+      --glow: rgba(196, 116, 54, 0.12);
+      --accent: #b44d1b;
+      --accent-soft: #e4c4b1;
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      color: var(--ink);
+      font-family: "SF Mono", "Menlo", monospace;
+      line-height: 1.4;
+      background:
+        radial-gradient(circle at 20% 0%, rgba(255, 244, 214, 0.75), transparent 30%),
+        radial-gradient(circle at 85% 10%, rgba(206, 96, 31, 0.16), transparent 24%),
+        linear-gradient(180deg, #efe6d8 0%, #efe3d4 38%, #e5d8c9 100%);
+    }
+
+    body::before {
+      content: "";
+      position: fixed;
+      inset: 0;
+      pointer-events: none;
+      background-image:
+        linear-gradient(rgba(22, 17, 13, 0.035) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(22, 17, 13, 0.035) 1px, transparent 1px);
+      background-size: 28px 28px;
+      mask-image: linear-gradient(180deg, rgba(0, 0, 0, 0.8), transparent);
+    }
+
+    .page {
+      max-width: 1420px;
+      margin: 0 auto;
+      padding: 28px;
+    }
+
+    .masthead {
+      display: grid;
+      grid-template-columns: 1.3fr 0.8fr;
+      gap: 18px;
+      margin-bottom: 18px;
+    }
+
+    .hero,
+    .note {
+      position: relative;
+      overflow: hidden;
+      border: 1px solid var(--line);
+      border-radius: 24px;
+      background: linear-gradient(180deg, rgba(255, 250, 243, 0.82), rgba(255, 248, 239, 0.68));
+      box-shadow:
+        0 22px 60px rgba(63, 39, 13, 0.08),
+        inset 0 1px 0 rgba(255, 255, 255, 0.7);
+    }
+
+    .hero {
+      padding: 28px;
+      min-height: 218px;
+    }
+
+    .hero::after {
+      content: "";
+      position: absolute;
+      right: -50px;
+      top: -40px;
+      width: 240px;
+      height: 240px;
+      border-radius: 999px;
+      background: radial-gradient(circle, var(--glow), transparent 70%);
+    }
+
+    .note {
+      padding: 22px;
+      display: grid;
+      align-content: space-between;
+    }
+
+    .eyebrow {
+      display: inline-block;
+      margin-bottom: 12px;
+      padding: 4px 10px;
+      border-radius: 999px;
+      border: 1px solid var(--line);
+      background: rgba(255, 248, 240, 0.72);
+      font-size: 11px;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+
+    .title {
+      margin: 0 0 8px;
+      font-size: 42px;
+      line-height: 0.98;
+      letter-spacing: -0.04em;
+      text-transform: uppercase;
+      max-width: 10ch;
+    }
+
+    .subtitle {
+      margin: 0;
+      max-width: 64ch;
+      color: var(--muted);
+      font-size: 13px;
+    }
+
+    .hero-grid {
+      display: grid;
+      grid-template-columns: 1fr 220px;
+      gap: 18px;
+      margin-top: 24px;
+      align-items: end;
+    }
+
+    .hero-stat {
+      border: 1px dashed var(--line);
+      border-radius: 16px;
+      padding: 14px;
+      background: rgba(255, 255, 255, 0.42);
+      font-size: 12px;
+    }
+
+    .hero-stat strong {
+      display: block;
+      margin-bottom: 6px;
+      font-size: 18px;
+    }
+
+    .note p {
+      margin: 0;
+      font-size: 12px;
+      color: var(--muted);
+    }
+
+    .shell {
+      display: grid;
+      grid-template-columns: 320px 1fr 320px;
+      gap: 18px;
+    }
+
+    .panel {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 24px;
+      padding: 18px;
+      backdrop-filter: blur(12px);
+      box-shadow:
+        0 18px 50px rgba(57, 37, 18, 0.08),
+        inset 0 1px 0 rgba(255, 255, 255, 0.6);
+    }
+
+    .panel h2,
+    .panel h3,
+    .panel h4 {
+      margin: 0 0 12px;
+      font-size: 12px;
+      text-transform: uppercase;
+      letter-spacing: 0.12em;
+    }
+
+    .input-box,
+    .card,
+    .cover,
+    .audio,
+    .result {
+      border: 1px solid var(--line);
+      border-radius: 18px;
+      background: #fff;
+      padding: 12px;
+    }
+
+    .input-box {
+      min-height: 124px;
+    }
+
+    .label {
+      display: inline-block;
+      padding: 3px 9px;
+      margin-bottom: 10px;
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      font-size: 11px;
+      background: rgba(242, 233, 224, 0.7);
+    }
+
+    .steps {
+      display: grid;
+      gap: 12px;
+    }
+
+    .card strong {
+      display: block;
+      margin-bottom: 6px;
+      font-size: 13px;
+    }
+
+    .card p,
+    .result p,
+    .input-box p {
+      margin: 0;
+      font-size: 12px;
+      color: var(--muted);
+    }
+
+    .card.active {
+      border-style: dashed;
+      transform: rotate(-0.3deg);
+      background:
+        linear-gradient(180deg, rgba(255, 245, 239, 0.9), rgba(255, 252, 248, 0.9));
+    }
+
+    .timeline {
+      display: grid;
+      gap: 10px;
+      margin-top: 14px;
+    }
+
+    .timeline .result {
+      position: relative;
+      padding-left: 14px;
+    }
+
+    .timeline .result::before {
+      content: "";
+      position: absolute;
+      top: 10px;
+      left: 0;
+      width: 6px;
+      height: 6px;
+      background: var(--ink);
+      border-radius: 50%;
+    }
+
+    .release {
+      display: grid;
+      grid-template-columns: 220px 1fr;
+      gap: 16px;
+      margin-top: 14px;
+    }
+
+    .cover {
+      aspect-ratio: 1;
+      display: grid;
+      place-items: center;
+      background:
+        radial-gradient(circle at 50% 24%, rgba(255, 205, 160, 0.72), transparent 24%),
+        linear-gradient(150deg, #1d1715 0%, #4f2612 34%, #d86d2d 76%, #f2d7b9 100%);
+      color: #fff6ef;
+      text-align: center;
+      font-size: 12px;
+      box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.18);
+    }
+
+    .audio {
+      margin-top: 10px;
+    }
+
+    .audio .bar {
+      height: 10px;
+      margin: 10px 0;
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      background:
+        linear-gradient(90deg, var(--accent) 0 38%, #efe7dc 38% 100%);
+    }
+
+    .mini-grid {
+      display: grid;
+      gap: 10px;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      margin-top: 10px;
+    }
+
+    .switches {
+      display: grid;
+      gap: 10px;
+    }
+
+    .switch {
+      border: 1px dashed var(--line);
+      border-radius: 16px;
+      padding: 10px;
+      background: rgba(255, 255, 255, 0.74);
+      font-size: 12px;
+    }
+
+    .switch.on {
+      background:
+        linear-gradient(180deg, rgba(255, 237, 226, 0.88), rgba(255, 247, 242, 0.88));
+      font-weight: 700;
+      color: var(--accent);
+      box-shadow: inset 0 0 0 1px rgba(180, 77, 27, 0.08);
+    }
+
+    .chip-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-top: 14px;
+    }
+
+    .chip {
+      padding: 5px 10px;
+      border-radius: 999px;
+      border: 1px solid var(--line);
+      background: rgba(255, 255, 255, 0.58);
+      font-size: 11px;
+    }
+
+    @media (max-width: 1200px) {
+      .masthead,
+      .hero-grid,
+      .shell,
+      .release {
+        grid-template-columns: 1fr;
+      }
+    }
+  </style>
+</head>
+<body>
+  <main class="page">
+    <section class="masthead">
+      <div class="hero">
+        <span class="eyebrow">soundtrack director desk</span>
+        <h1 class="title">movie to single release</h1>
+        <p class="subtitle">
+          the interface should feel like a director's tabletop for soundtrack
+          decisions: source material pinned on the left, the creative chain in
+          the middle, and branching production choices on the right.
+        </p>
+
+        <div class="hero-grid">
+          <div class="chip-row">
+            <span class="chip">story board</span>
+            <span class="chip">emotion map</span>
+            <span class="chip">lyric structure</span>
+            <span class="chip">arrangement call</span>
+            <span class="chip">style branch</span>
+          </div>
+          <div class="hero-stat">
+            <strong>1 input</strong>
+            movie / show title
+            <br />
+            <br />
+            <strong>1 output</strong>
+            a directed soundtrack package
+          </div>
+        </div>
+      </div>
+
+      <div class="note">
+        <div>
+          <span class="eyebrow">demo posture</span>
+          <p>
+            The visual goal is not "dashboard SaaS". It should feel like a
+            composer and creative director are looking at the same desk.
+          </p>
+        </div>
+        <div class="hero-stat">
+          <strong>Design thesis</strong>
+          Reference wall on the left. Decision runway in the middle. Inspector
+          and branch deck on the right.
+        </div>
+      </div>
+    </section>
+
+    <section class="shell">
+      <aside class="panel">
+        <h2>reference wall</h2>
+        <div class="input-box">
+          <span class="label">source topic</span>
+          <p><strong>Movie:</strong> Ne Zha 2</p>
+          <p><strong>Creative brief:</strong> turn the story into an anthemic ending-credit single</p>
+          <p><strong>Reference feel:</strong> cinematic pop + heroic chorus</p>
+        </div>
+
+        <div class="timeline">
+          <div class="result">
+            <strong>plot board</strong>
+            <p>rebellion, fate, sacrifice, chosen family</p>
+          </div>
+          <div class="result">
+            <strong>emotion curve</strong>
+            <p>rage -> doubt -> rise -> catharsis</p>
+          </div>
+          <div class="result">
+            <strong>song thesis</strong>
+            <p>an ending theme about defying destiny without losing tenderness</p>
+          </div>
+          <div class="result">
+            <strong>visual motifs</strong>
+            <p>storm sky, fire ring, lone silhouette, cracked gold typography</p>
+          </div>
+        </div>
+      </aside>
+
+      <section class="panel">
+        <h2>decision runway</h2>
+        <!-- The center column is the core product idea: visible derivation, not hidden prompting. -->
+        <div class="steps">
+          <div class="card">
+            <strong>1. content analyst</strong>
+            <p>pulls a short synopsis, identifies conflict, symbolic motifs, and who the song is emotionally "for".</p>
+          </div>
+          <div class="card">
+            <strong>2. lyric planner</strong>
+            <p>maps verse / pre-chorus / chorus against the emotion curve before writing a single line.</p>
+          </div>
+          <div class="card active">
+            <strong>3. arrangement call</strong>
+            <p>bpm 92, d minor, wide chorus lift, taiko-style low percussion, strings in final hook.</p>
+          </div>
+          <div class="card">
+            <strong>4. cover director</strong>
+            <p>turns the mood board into a poster-like single cover instead of a generic AI image.</p>
+          </div>
+          <div class="card">
+            <strong>5. render + branch</strong>
+            <p>generates the audio, then forks alternative style directions without losing the same story thesis.</p>
+          </div>
+        </div>
+
+        <div class="release">
+          <div class="cover">
+            director cover
+            <br />
+            storm / fire / silhouette
+            <br />
+            like a soundtrack brief pinned to the wall
+          </div>
+
+          <div>
+            <h3>director output</h3>
+            <div class="result">
+              <strong>track title</strong>
+              <p>"Break the Fate"</p>
+            </div>
+            <div class="audio">
+              <strong>audio preview</strong>
+              <div class="bar"></div>
+              <p>03:24 | cinematic pop version</p>
+            </div>
+            <div class="mini-grid">
+              <div class="result">
+                <strong>lyric board</strong>
+                <p>verse and chorus blocks shown with emotional purpose, not just final lines dumped in a text box.</p>
+              </div>
+              <div class="result">
+                <strong>composition sheet</strong>
+                <p>key, bpm, structure, instrumentation, vocal tone, and arrangement notes for the current branch.</p>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <aside class="panel">
+        <h2>branch inspector</h2>
+        <!-- These branches create the 'whoa' moment for music enthusiasts after the first render. -->
+        <div class="switches">
+          <div class="switch on">cinematic pop</div>
+          <div class="switch">folk ballad rewrite</div>
+          <div class="switch">electronic trailer mix</div>
+          <div class="switch">rock ending-theme version</div>
+        </div>
+
+        <div class="timeline">
+          <div class="result">
+            <strong>branch note</strong>
+            <p>same lyrical core, different arrangement logic and vocal posture.</p>
+          </div>
+          <div class="result">
+            <strong>director controls later</strong>
+            <p>lock lyrics, reroll melody; lock mood, fork instrumentation; compare branches side by side.</p>
+          </div>
+          <div class="result">
+            <strong>live inspector</strong>
+            <p>show which decisions are inherited from the source story and which were introduced by the current branch.</p>
+          </div>
+        </div>
+      </aside>
+    </section>
+  </main>
+</body>
+</html>

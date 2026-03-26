@@ -1,0 +1,18 @@
+[project]
+name = "movie-to-song-workspace-backend"
+version = "0.1.0"
+description = "FastAPI backend for the movie-to-song visual workspace."
+requires-python = ">=3.12"
+dependencies = [
+  "fastapi>=0.115,<1.0",
+  "uvicorn>=0.30,<1.0",
+  "httpx>=0.27,<1.0",
+]
+
+[dependency-groups]
+dev = [
+  "pytest>=8.0,<9.0",
+]
+
+[tool.uv]
+package = false
