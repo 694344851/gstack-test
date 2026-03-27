@@ -15,6 +15,8 @@ def main() -> None:
     worker_id = f"worker_{uuid4().hex[:8]}"
     init_db()
     while True:
+        # API 只负责创建 queued 任务；
+        # 真正后台消费并推进流程的是 worker。
         task = claim_next_task(worker_id)
         if task is None:
             time.sleep(POLL_INTERVAL_SECONDS)
@@ -24,4 +26,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-

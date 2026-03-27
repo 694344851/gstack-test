@@ -27,6 +27,8 @@ def init_db() -> None:
     path = get_db_path()
     path.parent.mkdir(parents=True, exist_ok=True)
     with sqlite3.connect(path) as conn:
+        # 整个创作流程都持久化在这一张任务表里。
+        # 作品库不是单独存表，而是后续从已完成任务里投影出来。
         conn.execute(
             """
             CREATE TABLE IF NOT EXISTS generation_tasks (
@@ -38,11 +40,18 @@ def init_db() -> None:
                 current_result_json TEXT NOT NULL,
                 error_json TEXT,
                 claimed_by TEXT,
+                is_trashed INTEGER NOT NULL DEFAULT 0,
+                deleted_at TEXT,
                 created_at TEXT NOT NULL,
                 updated_at TEXT NOT NULL
             )
             """
         )
+        columns = {row[1] for row in conn.execute("PRAGMA table_info(generation_tasks)").fetchall()}
+        if "is_trashed" not in columns:
+            conn.execute("ALTER TABLE generation_tasks ADD COLUMN is_trashed INTEGER NOT NULL DEFAULT 0")
+        if "deleted_at" not in columns:
+            conn.execute("ALTER TABLE generation_tasks ADD COLUMN deleted_at TEXT")
         conn.commit()
 
 
@@ -63,8 +72,8 @@ def create_task_row(task: dict[str, Any]) -> None:
             """
             INSERT INTO generation_tasks (
                 id, status, current_stage, input_json, stage_artifacts_json,
-                current_result_json, error_json, claimed_by, created_at, updated_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                current_result_json, error_json, claimed_by, is_trashed, deleted_at, created_at, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 task["id"],
@@ -75,6 +84,8 @@ def create_task_row(task: dict[str, Any]) -> None:
                 json.dumps(task["current_result"], ensure_ascii=False),
                 json.dumps(task["error"], ensure_ascii=False) if task["error"] else None,
                 task.get("claimed_by"),
+                int(bool(task.get("is_trashed", False))),
+                task.get("deleted_at"),
                 task["created_at"],
                 task["updated_at"],
             ),
@@ -83,6 +94,8 @@ def create_task_row(task: dict[str, Any]) -> None:
 
 
 def save_task(task: dict[str, Any]) -> None:
+    # 每次阶段推进时都会整体回写任务快照，这样前端只需要轮询这一份状态，
+    # 不需要自己拼接零散的增量更新。
     task["updated_at"] = now_iso()
     with connect() as conn:
         conn.execute(
@@ -119,6 +132,8 @@ def row_to_task(row: sqlite3.Row | None) -> dict[str, Any] | None:
         "current_result": json.loads(row["current_result_json"]),
         "error": json.loads(row["error_json"]) if row["error_json"] else None,
         "claimed_by": row["claimed_by"],
+        "is_trashed": bool(row["is_trashed"]),
+        "deleted_at": row["deleted_at"],
         "created_at": row["created_at"],
         "updated_at": row["updated_at"],
     }
@@ -134,6 +149,8 @@ def get_task(task_id: str) -> dict[str, Any] | None:
 
 
 def _row_to_library_work(row: sqlite3.Row) -> dict[str, Any]:
+    # v1 的作品卡片直接由任务记录映射出来，避免再维护一张独立作品表，
+    # 从而减少双写和状态漂移。
     current_result = json.loads(row["current_result_json"])
     task_input = json.loads(row["input_json"])
 
@@ -162,6 +179,7 @@ def _row_to_library_work(row: sqlite3.Row) -> dict[str, Any]:
         "created_at": row["created_at"],
         "active_style": active_style,
         "has_audio": bool(current_result.get("audioUrl")),
+        "deleted_at": row["deleted_at"],
     }
 
 
@@ -169,9 +187,10 @@ def list_library_works() -> list[dict[str, Any]]:
     with connect() as conn:
         rows = conn.execute(
             """
-            SELECT id, input_json, current_result_json, created_at
+            SELECT id, input_json, current_result_json, created_at, deleted_at
             FROM generation_tasks
             WHERE status = 'completed'
+              AND is_trashed = 0
             ORDER BY created_at DESC
             """
         ).fetchall()
@@ -181,12 +200,70 @@ def list_library_works() -> list[dict[str, Any]]:
         try:
             works.append(_row_to_library_work(row))
         except (KeyError, TypeError, ValueError, json.JSONDecodeError) as exc:
+            # 单条脏数据不能把整个作品库接口拖挂，所以这里选择跳过并记日志。
             logger.warning("Skipping malformed library work for task %s: %s", row["id"], exc)
     return works
 
 
+def list_trashed_library_works() -> list[dict[str, Any]]:
+    with connect() as conn:
+        rows = conn.execute(
+            """
+            SELECT id, input_json, current_result_json, created_at, deleted_at
+            FROM generation_tasks
+            WHERE status = 'completed'
+              AND is_trashed = 1
+            ORDER BY deleted_at DESC, created_at DESC
+            """
+        ).fetchall()
+
+    works: list[dict[str, Any]] = []
+    for row in rows:
+        try:
+            works.append(_row_to_library_work(row))
+        except (KeyError, TypeError, ValueError, json.JSONDecodeError) as exc:
+            logger.warning("Skipping malformed trashed library work for task %s: %s", row["id"], exc)
+    return works
+
+
+def mark_task_trashed(task_id: str, deleted_at: str) -> bool:
+    with connect() as conn:
+        cursor = conn.execute(
+            """
+            UPDATE generation_tasks
+            SET is_trashed = 1, deleted_at = ?, updated_at = ?
+            WHERE id = ?
+            """,
+            (deleted_at, deleted_at, task_id),
+        )
+        conn.commit()
+        return cursor.rowcount > 0
+
+
+def restore_trashed_task(task_id: str, updated_at: str) -> bool:
+    with connect() as conn:
+        cursor = conn.execute(
+            """
+            UPDATE generation_tasks
+            SET is_trashed = 0, deleted_at = NULL, updated_at = ?
+            WHERE id = ?
+            """,
+            (updated_at, task_id),
+        )
+        conn.commit()
+        return cursor.rowcount > 0
+
+
+def delete_task_row(task_id: str) -> bool:
+    with connect() as conn:
+        cursor = conn.execute("DELETE FROM generation_tasks WHERE id = ?", (task_id,))
+        conn.commit()
+        return cursor.rowcount > 0
+
+
 def claim_next_task(worker_id: str) -> dict[str, Any] | None:
     with connect() as conn:
+        # 先拿写锁再查队列，避免多个 worker 同时抢到同一条 queued 任务。
         conn.execute("BEGIN IMMEDIATE")
         row = conn.execute(
             """

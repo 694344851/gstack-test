@@ -20,6 +20,7 @@ def _safe_title(raw: str) -> str:
 def source_analysis_provider(task_input: dict[str, Any]) -> dict[str, Any]:
     title = _safe_title(task_input["title"])
     synopsis = task_input.get("synopsis") or f"{title} 的情绪核心被提炼成一首可改编的主题曲。"
+    # 第一阶段把输入题材整理成后续可复用的主题、情绪和意象摘要。
     return {
         "summary": synopsis,
         "themes": ["反抗命运", "关系张力", "情绪抬升"],
@@ -31,6 +32,7 @@ def source_analysis_provider(task_input: dict[str, Any]) -> dict[str, Any]:
 
 def lyric_plan_provider(task_input: dict[str, Any], source_analysis: dict[str, Any]) -> dict[str, Any]:
     title = _safe_title(task_input["title"])
+    # 歌词规划消费题材分析结果，产出段落结构和副歌钩子。
     return {
         "concept": f"围绕《{title}》的情绪主线写一首兼具叙事与副歌爆发力的歌。",
         "sections": [
@@ -48,6 +50,7 @@ def composition_brief_provider(
     lyric_plan: dict[str, Any],
 ) -> dict[str, Any]:
     title = _safe_title(task_input["title"])
+    # 编曲阶段确定标题提案和音乐制作参数，给后面的封面与音频生成使用。
     return {
         "titleProposal": f"{title}·逆光版",
         "bpm": 92,
@@ -83,6 +86,7 @@ def cover_direction_provider(
     composition_brief: dict[str, Any],
 ) -> dict[str, Any]:
     title = composition_brief["titleProposal"]
+    # 这里先用 SVG data URL 模拟封面生成结果，便于前端直接预览。
     return {
         "artDirection": "冷色底 + 热色焦点，像深夜配乐控制台里的单曲封面。",
         "coverUrl": _svg_data_url(title),
@@ -113,10 +117,11 @@ def audio_render_provider(
     composition_brief: dict[str, Any],
     lyric_plan: dict[str, Any],
 ) -> dict[str, Any]:
+    # 当前版本仍是 mock：直接返回一段本地合成的 wav data URL，
+    # 用来打通“可播放结果”这条完整链路。
     return {
         "title": composition_brief["titleProposal"],
         "audioUrl": _audio_data_url(),
         "durationSeconds": 24,
         "lyricHook": lyric_plan["hook"],
     }
-

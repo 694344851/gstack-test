@@ -42,6 +42,8 @@ def build_task(task_id: str, title: str, synopsis: str | None) -> dict[str, Any]
     from .db import now_iso
 
     timestamp = now_iso()
+    # 每个创作工作台对应一条 generation task。
+    # 这条记录既能被前端轮询，也能在完成后进入作品库。
     return {
         "id": task_id,
         "status": "queued",
@@ -61,6 +63,8 @@ def _set_stage_state(task: dict[str, Any], stage: str, status: str, artifact: di
 
 
 def _merge_result(task: dict[str, Any], stage: str, artifact: dict[str, Any]) -> None:
+    # 工作台顶部展示区读取的是 current_result，
+    # 所以每个阶段一旦成功，就把当前最值得展示的结果同步进去。
     if stage == "composition_brief":
         task["current_result"]["title"] = artifact["titleProposal"]
     elif stage == "cover_direction":
@@ -72,6 +76,8 @@ def _merge_result(task: dict[str, Any], stage: str, artifact: dict[str, Any]) ->
 
 
 def _run_stage(task: dict[str, Any], stage: str) -> dict[str, Any]:
+    # 后续阶段要依赖前面阶段产出的 artifact。
+    # 任务快照本身就是各阶段之间的数据交接契约。
     source_artifact = task["stages"]["source_analysis"]["artifact"]
     lyric_artifact = task["stages"]["lyric_plan"]["artifact"]
     composition_artifact = task["stages"]["composition_brief"]["artifact"]
@@ -100,6 +106,8 @@ def retry_task(task_id: str) -> dict[str, Any]:
         if stage == failed_stage:
             reset = True
         if reset:
+            # 重试时保留失败点之前已经成功的阶段，
+            # 只清空失败阶段及其后续派生结果。
             task["stages"][stage] = {"status": "not_started", "artifact": None}
     task["error"] = None
     task["status"] = "queued"
@@ -129,6 +137,8 @@ def run_task(task_id: str) -> dict[str, Any]:
             task["status"] = "running"
             save_task(task)
         except Exception as exc:  # noqa: BLE001
+            # 失败信息也要持久化到任务里，
+            # 这样前端才能稳定显示失败态并提供重试入口。
             _set_stage_state(task, stage, "failed", None)
             task["status"] = "failed"
             task["error"] = {
@@ -144,4 +154,3 @@ def run_task(task_id: str) -> dict[str, Any]:
     task["error"] = None
     save_task(task)
     return task
-

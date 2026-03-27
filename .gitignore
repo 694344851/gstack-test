@@ -6,6 +6,7 @@ node_modules/
 dist/
 .run/
 .agents/
+frontend/test-results/
 *.tsbuildinfo
 *.pyc
 backend/data/
