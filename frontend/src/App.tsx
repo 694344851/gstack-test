@@ -858,19 +858,6 @@ function App() {
             </>
           ) : (
             <>
-              <section className="library-overview">
-                <div className="library-copy panel">
-                  <p className="eyebrow">我的作品库</p>
-                  <h2>每首作品都可以被播放、重命名、移动到垃圾箱，或继续查看每个创作节点。</h2>
-                  <p className="subtle">结果优先呈现，删除先进垃圾箱，作品仍然保留完整的节点剖面与恢复入口。</p>
-                </div>
-                <div className="library-summary panel">
-                  <p className="eyebrow accent">Library Snapshot</p>
-                  <strong>{activeCount} 首作品</strong>
-                  <p className="subtle">{trashCount} 首在垃圾箱中，恢复后会重新回到主目录。</p>
-                </div>
-              </section>
-
               <section className="library-headline panel">
                 <div>
                   <p className="eyebrow">我的作品库</p>
@@ -907,53 +894,99 @@ function App() {
               ) : null}
 
               {currentLibraryLoading ? (
-                <section className="library-grid" aria-label="作品加载中">
-                  {Array.from({ length: 6 }).map((_, index) => (
-                    <article key={index} className="library-card loading">
-                      <div className="library-card-media skeleton" />
-                      <div className="library-card-body">
-                        <div className="ghost-line long" />
-                        <div className="ghost-line medium" />
-                        <div className="ghost-line short" />
-                      </div>
-                    </article>
-                  ))}
-                </section>
+                libraryScope === "works" ? (
+                  <section className="library-grid" aria-label="作品加载中">
+                    {Array.from({ length: 6 }).map((_, index) => (
+                      <article key={index} className="library-card loading">
+                        <div className="library-card-media skeleton" />
+                        <div className="library-card-body">
+                          <div className="ghost-line long" />
+                          <div className="ghost-line medium" />
+                          <div className="ghost-line short" />
+                        </div>
+                      </article>
+                    ))}
+                  </section>
+                ) : (
+                  <section className="trash-list" aria-label="垃圾箱加载中">
+                    {Array.from({ length: 5 }).map((_, index) => (
+                      <article key={index} className="trash-row loading">
+                        <div className="trash-row-main">
+                          <div className="trash-row-titleline">
+                            <div className="ghost-line medium" />
+                            <span className="trash-badge ghost-badge" />
+                          </div>
+                          <div className="ghost-line short" />
+                        </div>
+                        <div className="trash-row-meta">
+                          <div className="ghost-line short" />
+                          <div className="ghost-line medium" />
+                        </div>
+                      </article>
+                    ))}
+                  </section>
+                )
               ) : null}
 
               {!currentLibraryLoading && !currentLibraryError && currentLibraryList?.length ? (
-                <section className="library-grid" aria-label={libraryScope === "works" ? "作品卡片墙" : "垃圾箱卡片墙"}>
-                  {currentLibraryList.map((work) => (
-                    <button
-                      key={work.id}
-                      type="button"
-                      className="library-card library-card-button"
-                      onClick={() => setDetailWorkId(work.id)}
-                    >
-                      <div className="library-card-media">
-                        <img src={work.coverUrl} alt={work.title} />
-                      </div>
-                      <div className="library-card-body">
-                        <p className="eyebrow accent">{localizeValue(work.activeStyle)}</p>
-                        <h3>{work.title}</h3>
-                        <dl className="library-meta">
-                          <div>
-                            <dt>生成来源</dt>
-                            <dd>{work.sourceTitle}</dd>
-                          </div>
-                          <div>
-                            <dt>{libraryScope === "works" ? "生成时间" : "删除时间"}</dt>
-                            <dd>{formatTimestamp(libraryScope === "works" ? work.createdAt : work.deletedAt ?? work.createdAt)}</dd>
-                          </div>
-                        </dl>
-                        <div className="library-card-footer">
-                          <span>{work.hasAudio ? "可播放试听" : "仅保留作品记录"}</span>
-                          <span>{libraryScope === "works" ? "查看节点详情" : "可恢复或彻底删除"}</span>
+                libraryScope === "works" ? (
+                  <section className="library-grid" aria-label="作品卡片墙">
+                    {currentLibraryList.map((work) => (
+                      <button
+                        key={work.id}
+                        type="button"
+                        className="library-card library-card-button"
+                        onClick={() => setDetailWorkId(work.id)}
+                      >
+                        <div className="library-card-media">
+                          <img src={work.coverUrl} alt={work.title} />
                         </div>
-                      </div>
-                    </button>
-                  ))}
-                </section>
+                        <div className="library-card-body">
+                          <p className="eyebrow accent">{localizeValue(work.activeStyle)}</p>
+                          <h3>{work.title}</h3>
+                          <dl className="library-meta">
+                            <div>
+                              <dt>生成来源</dt>
+                              <dd>{work.sourceTitle}</dd>
+                            </div>
+                            <div>
+                              <dt>生成时间</dt>
+                              <dd>{formatTimestamp(work.createdAt)}</dd>
+                            </div>
+                          </dl>
+                          <div className="library-card-footer">
+                            <span>{work.hasAudio ? "可播放试听" : "仅保留作品记录"}</span>
+                            <span>查看节点详情</span>
+                          </div>
+                        </div>
+                      </button>
+                    ))}
+                  </section>
+                ) : (
+                  <section className="trash-list" aria-label="垃圾箱列表">
+                    {currentLibraryList.map((work) => (
+                      <button
+                        key={work.id}
+                        type="button"
+                        className="trash-row trash-row-button"
+                        onClick={() => setDetailWorkId(work.id)}
+                      >
+                        <div className="trash-row-main">
+                          <div className="trash-row-titleline">
+                            <h3>{work.title}</h3>
+                            <span className="trash-badge">垃圾箱</span>
+                          </div>
+                          <p>{work.sourceTitle}</p>
+                        </div>
+                        <div className="trash-row-meta">
+                          <span>删除时间</span>
+                          <strong>{formatTimestamp(work.deletedAt ?? work.createdAt)}</strong>
+                          <p>打开后可恢复或彻底删除</p>
+                        </div>
+                      </button>
+                    ))}
+                  </section>
+                )
               ) : null}
 
               {!currentLibraryLoading && !currentLibraryError && !currentLibraryList?.length ? renderLibraryEmpty() : null}
