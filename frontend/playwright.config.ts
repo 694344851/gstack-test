@@ -9,7 +9,8 @@ export default defineConfig({
     headless: true,
   },
   webServer: {
-    command: "VITE_API_BASE_URL=http://localhost:8000 npm run build && VITE_API_BASE_URL=http://localhost:8000 npm run preview -- --host 127.0.0.1 --port 4174",
+    command:
+      "env -u NO_COLOR VITE_API_BASE_URL=http://localhost:8000 npm run build && env -u NO_COLOR VITE_API_BASE_URL=http://localhost:8000 npm run preview -- --host 127.0.0.1 --port 4174",
     url: "http://127.0.0.1:4174",
     reuseExistingServer: !process.env.CI,
     timeout: 120_000,

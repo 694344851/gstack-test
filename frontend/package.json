@@ -9,7 +9,7 @@
     "preview": "vite preview",
     "test": "npm run test:unit && npm run test:e2e",
     "test:unit": "vitest run",
-    "test:e2e": "playwright test"
+    "test:e2e": "env -u NO_COLOR playwright test"
   },
   "dependencies": {
     "@tanstack/react-query": "^5.59.0",
