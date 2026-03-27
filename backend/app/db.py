@@ -158,18 +158,21 @@ def _row_to_library_work(row: sqlite3.Row) -> dict[str, Any]:
         raise ValueError("task payload must be an object")
 
     title = current_result["title"]
-    cover_url = current_result["coverUrl"]
+    cover_url = current_result.get("coverUrl")
     active_style = current_result["activeStyle"]
+    current_highlight = current_result.get("currentHighlight")
     source_title = task_input["title"]
 
     if not isinstance(title, str) or not title.strip():
         raise ValueError("missing current_result.title")
-    if not isinstance(cover_url, str) or not cover_url.strip():
-        raise ValueError("missing current_result.coverUrl")
     if not isinstance(active_style, str) or not active_style.strip():
         raise ValueError("missing current_result.activeStyle")
     if not isinstance(source_title, str) or not source_title.strip():
         raise ValueError("missing input.title")
+    if cover_url is not None and (not isinstance(cover_url, str) or not cover_url.strip()):
+        raise ValueError("invalid current_result.coverUrl")
+    if current_highlight is not None and (not isinstance(current_highlight, str) or not current_highlight.strip()):
+        raise ValueError("invalid current_result.currentHighlight")
 
     return {
         "id": row["id"],
@@ -178,6 +181,7 @@ def _row_to_library_work(row: sqlite3.Row) -> dict[str, Any]:
         "source_title": source_title,
         "created_at": row["created_at"],
         "active_style": active_style,
+        "current_highlight": current_highlight,
         "has_audio": bool(current_result.get("audioUrl")),
         "deleted_at": row["deleted_at"],
     }

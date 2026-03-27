@@ -10,3 +10,4 @@ frontend/test-results/
 *.tsbuildinfo
 *.pyc
 backend/data/
+.env.local

@@ -258,6 +258,36 @@ button {
   color: var(--text-muted);
 }
 
+.cover-placeholder-rich {
+  align-content: end;
+  gap: 8px;
+  padding: 18px;
+  text-align: left;
+  background:
+    linear-gradient(180deg, rgba(255, 176, 0, 0.08), transparent 42%),
+    linear-gradient(135deg, rgba(17, 25, 35, 0.96), rgba(30, 42, 57, 0.96));
+  color: var(--text);
+}
+
+.cover-placeholder-rich strong {
+  font-size: 24px;
+  line-height: 1.08;
+}
+
+.cover-placeholder-rich span {
+  color: var(--text-dim);
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.cover-kicker {
+  margin: 0;
+  color: var(--brand);
+  font-size: 11px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+}
+
 .audio-placeholder {
   margin-top: 12px;
   border: 1px dashed var(--line);
@@ -650,6 +680,13 @@ button {
 .library-card-media {
   overflow: hidden;
   border-bottom: 1px solid rgba(145, 161, 180, 0.14);
+}
+
+.library-card-media .cover-placeholder,
+.modal-cover .cover-placeholder,
+.cover-card .cover-placeholder,
+.inspector-cover-preview .cover-placeholder {
+  height: 100%;
 }
 
 .library-card-media img {

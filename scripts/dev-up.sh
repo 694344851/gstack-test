@@ -5,6 +5,7 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 LOG_DIR="$ROOT/.run"
 BACKEND_DIR="$ROOT/backend"
 FRONTEND_DIR="$ROOT/frontend"
+ENV_FILE="${ENV_FILE:-$ROOT/.env.local}"
 BACKEND_PORT="${BACKEND_PORT:-8010}"
 FRONTEND_PORT="${FRONTEND_PORT:-4173}"
 BACKEND_BIN="$BACKEND_DIR/.venv/bin/python"
@@ -14,6 +15,14 @@ WORKER_PATTERN="$BACKEND_BIN -m app.worker"
 FRONTEND_PATTERN="$FRONTEND_BIN --host 127.0.0.1 --port $FRONTEND_PORT"
 
 mkdir -p "$LOG_DIR"
+
+if [ -f "$ENV_FILE" ]; then
+  echo "[dev-up] Loading env from $ENV_FILE"
+  set -a
+  # shellcheck disable=SC1090
+  . "$ENV_FILE"
+  set +a
+fi
 
 port_pids() {
   local port="$1"

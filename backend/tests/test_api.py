@@ -31,7 +31,7 @@ def _configure_app(tmp_path: Path):
         retry_generation_task,
         trash_library_work,
     )
-    from app.orchestrator import build_task
+    from app.orchestrator import build_task, run_task
 
     init_db()
     return {
@@ -50,11 +50,20 @@ def _configure_app(tmp_path: Path):
         "patch_library_work": patch_library_work,
         "restore_library_work_route": restore_library_work_route,
         "retry_generation_task": retry_generation_task,
+        "run_task": run_task,
         "trash_library_work": trash_library_work,
     }
 
 
-def _completed_task(build_task, task_id: str, source_title: str, *, created_at: str, deleted_at: str | None = None):
+def _completed_task(
+    build_task,
+    task_id: str,
+    source_title: str,
+    *,
+    created_at: str,
+    deleted_at: str | None = None,
+    with_media: bool = False,
+):
     task = build_task(task_id, source_title, None)
     task["status"] = "completed"
     task["current_stage"] = "completed"
@@ -62,37 +71,81 @@ def _completed_task(build_task, task_id: str, source_title: str, *, created_at: 
     task["updated_at"] = deleted_at or created_at
     task["stages"]["source_analysis"] = {
         "status": "succeeded",
-        "artifact": {"summary": f"{source_title} 的主题摘要"},
+        "artifact": {
+            "summary": f"{source_title} 的主题摘要",
+            "coreConflict": f"{source_title} 的核心冲突",
+            "themes": ["反抗命运", "关系张力"],
+            "emotionArc": ["压抑", "爆发"],
+            "motifs": ["夜色", "火光"],
+            "audienceLens": "面向喜欢电影流行的听众。",
+            "lyricFocus": f"{source_title} 的副歌要落在不认命的宣告上。",
+        },
     }
     task["stages"]["lyric_plan"] = {
         "status": "succeeded",
-        "artifact": {"concept": f"{source_title} 的副歌方向"},
+        "artifact": {
+            "concept": f"{source_title} 的副歌方向",
+            "narrativePOV": "第一人称",
+            "sections": [
+                {
+                    "name": "主歌 A",
+                    "purpose": "交代压力",
+                    "emotionalBeat": "克制",
+                    "imagery": ["夜路"],
+                }
+            ],
+            "hook": f"{source_title} 不认命",
+            "keyLines": [f"{source_title} 的关键句 1", f"{source_title} 的关键句 2"],
+            "chorusDraft": [f"{source_title} 的副歌 1", f"{source_title} 的副歌 2"],
+            "languageStyle": "电影流行",
+            "forComposition": "副歌需要上扬空间。",
+        },
     }
     task["stages"]["composition_brief"] = {
         "status": "succeeded",
-        "artifact": {"bpm": 96, "key": "D Minor"},
+        "artifact": {
+            "titleProposal": f"{source_title}·作品版",
+            "tempo": "96 BPM",
+            "key": "D Minor",
+            "timeSignature": "4/4",
+            "arrangement": ["低鼓", "弦乐"],
+            "vocalDirection": "主歌克制，副歌前推。",
+            "sectionDynamics": [{"section": "副歌", "dynamic": "释放"}],
+            "mixMood": "电影流行",
+        },
     }
     task["stages"]["cover_direction"] = {
         "status": "succeeded",
         "artifact": {
-            "artDirection": f"{source_title} 的封面方向",
-            "titleLock": f"{source_title}·封面版",
-            "coverUrl": f"https://example.com/{task_id}.jpg",
+            "coverTitle": f"{source_title}·封面版",
+            "visualConcept": f"{source_title} 的封面方向",
+            "composition": "主体偏下构图",
+            "palette": ["深海蓝", "琥珀金"],
+            "subjectFocus": "人物轮廓",
+            "negativeSpace": "上方留白",
+            "renderPrompt": "cinematic cover",
+            "avoid": ["卡通感"],
         },
     }
     task["stages"]["audio_render"] = {
         "status": "succeeded",
         "artifact": {
-            "title": f"{source_title}·音频版",
-            "audioUrl": f"https://example.com/{task_id}.mp3",
-            "durationSeconds": 24,
+            "versionTitle": f"{source_title}·音频版",
+            "performanceDirection": f"{source_title} 的演唱说明",
+            "instrumentation": ["低鼓", "弦乐"],
+            "chorusLift": "副歌抬升",
+            "introDirection": "前奏压抑",
+            "endingDirection": "尾段延长",
+            "productionNotes": ["保留颗粒感"],
+            "renderPrompt": "cinematic vocal brief",
         },
     }
     task["current_result"] = {
         "title": f"{source_title}·作品版",
-        "coverUrl": f"https://example.com/{task_id}.jpg",
-        "audioUrl": f"https://example.com/{task_id}.mp3",
+        "coverUrl": f"https://example.com/{task_id}.jpg" if with_media else None,
+        "audioUrl": f"https://example.com/{task_id}.mp3" if with_media else None,
         "activeStyle": "电影流行",
+        "currentHighlight": f"{source_title} 的当前摘要句。",
     }
     task["is_trashed"] = bool(deleted_at)
     task["deleted_at"] = deleted_at
@@ -206,7 +259,9 @@ def test_library_works_returns_completed_cards_in_desc_order_and_excludes_trashe
     assert works[0]["title"] == "新电影·作品版"
     assert works[0]["sourceTitle"] == "新电影"
     assert works[0]["activeStyle"] == "电影流行"
-    assert works[0]["hasAudio"] is True
+    assert works[0]["currentHighlight"] == "新电影 的当前摘要句。"
+    assert works[0]["coverUrl"] is None
+    assert works[0]["hasAudio"] is False
     assert works[0]["deletedAt"] is None
 
 
@@ -304,7 +359,8 @@ def test_library_work_detail_returns_detail_dto_for_active_and_trashed_work(tmp_
     assert detail["sourceTitle"] == "正常电影"
     assert detail["isTrashed"] is False
     assert detail["currentResult"]["title"] == "正常电影·作品版"
-    assert detail["stages"]["audio_render"]["artifact"]["title"] == "正常电影·音频版"
+    assert detail["currentHighlight"] == "正常电影 的当前摘要句。"
+    assert detail["stages"]["audio_render"]["artifact"]["versionTitle"] == "正常电影·音频版"
     assert trash_detail["isTrashed"] is True
     assert trash_detail["deletedAt"] == "2026-03-26T09:00:00+00:00"
 
@@ -339,7 +395,7 @@ def test_patch_library_work_renames_active_work_and_preserves_stage_artifact_tit
 
     assert renamed["title"] == "新的展示标题"
     assert renamed["currentResult"]["title"] == "新的展示标题"
-    assert renamed["stages"]["audio_render"]["artifact"]["title"] == "正常电影·音频版"
+    assert renamed["stages"]["audio_render"]["artifact"]["versionTitle"] == "正常电影·音频版"
     assert cards[0]["title"] == "新的展示标题"
     assert stored["current_result"]["title"] == "新的展示标题"
 
@@ -420,3 +476,107 @@ def test_invalid_trash_restore_delete_states_return_400(tmp_path: Path) -> None:
         deps["trash_library_work"]("task_active")
 
     assert trash_again_exc.value.status_code == 400
+
+
+def test_run_task_completes_all_text_stages_with_mocked_text_api(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    deps = _configure_app(tmp_path)
+
+    task = deps["build_task"]("task_stub", "白蛇", "一段关于命运与选择的故事")
+    deps["create_task_row"](task)
+
+    import app.orchestrator as orchestrator
+
+    responses = {
+        "source_analysis": """
+<WORKFLOW_JSON>
+{"summary":"《白蛇》被提炼成一条从压抑到宣告的情绪上升线。","coreConflict":"主角在宿命压迫与自我选择之间不断拉扯。","themes":["反抗命运","关系牵引","自我宣告"],"emotionArc":["压抑","试探","抬升","爆发"],"motifs":["夜色","火光","逆风","回声"],"audienceLens":"适合期待强副歌和电影感叙事的流行听众。","lyricFocus":"把“我不认命”的内心转折写成可被合唱放大的副歌核心。"}
+</WORKFLOW_JSON>
+""".strip(),
+        "lyric_plan": """
+<WORKFLOW_JSON>
+{"concept":"围绕《白蛇》的命运对抗写一首先压抑后宣告的电影流行歌。","narrativePOV":"第一人称，贴近主角在压力边缘的自白。","sections":[{"name":"主歌 A","purpose":"交代命运压力和被逼到边缘的处境。","emotionalBeat":"克制而发紧","imagery":["夜路","余烬"]},{"name":"预副歌","purpose":"把情绪从忍耐推到临界点。","emotionalBeat":"拉升与决断","imagery":["风口","回声"]},{"name":"副歌","purpose":"给出不认命的核心宣告。","emotionalBeat":"开阔爆发","imagery":["火光","逆风"]}],"hook":"命可以压我一程，压不灭我这口气。","keyLines":["我把沉默熬成一声反击","逆着风也要把名字唱清"],"chorusDraft":["命可以压我一程 压不灭我这口气","就算夜把路吹散 我也要迎着火光去"],"languageStyle":"口语化但有电影感，短句利于副歌齐唱。","forComposition":"主歌保留留白，副歌需要更大旋律上扬和群唱空间。"}
+</WORKFLOW_JSON>
+""".strip(),
+        "composition_brief": """
+<WORKFLOW_JSON>
+{"titleProposal":"白蛇·逆光版","tempo":"92 BPM","key":"D Minor","timeSignature":"4/4","arrangement":["低鼓脉冲","弦乐铺底","合成器氛围","副歌叠唱"],"vocalDirection":"主歌压着唱，预副歌前推，副歌释放并加厚和声。","sectionDynamics":[{"section":"主歌 A","dynamic":"低密度，保留空隙"},{"section":"预副歌","dynamic":"鼓点抬升，张力聚集"},{"section":"副歌","dynamic":"频宽拉满，情绪释放"}],"mixMood":"冷色底盘里保留一点热感冲顶，强调电影流行的推背感。"}
+</WORKFLOW_JSON>
+""".strip(),
+        "cover_direction": """
+<WORKFLOW_JSON>
+{"coverTitle":"白蛇·逆光版","visualConcept":"在冷色深夜中保留一束热光，像命运压迫下仍然点亮的意志。","composition":"主体偏下构图，光源从画面一角切入，保留上方负空间。","palette":["深海蓝","炭黑","琥珀金"],"subjectFocus":"一个迎着逆风站定的人物轮廓。","negativeSpace":"上方留出大面积暗部，让标题和情绪有呼吸位。","renderPrompt":"cinematic single cover, deep blue night, amber rim light, lone silhouette facing headwind","avoid":["卡通感","过度赛博","拥挤背景"]}
+</WORKFLOW_JSON>
+""".strip(),
+        "audio_render": """
+<WORKFLOW_JSON>
+{"versionTitle":"白蛇·导演说明版","performanceDirection":"主歌像压住情绪的自白，副歌必须唱出宣告感和群体共振。","instrumentation":["低鼓","弦乐","铺底合成器","副歌群唱"],"chorusLift":"副歌首句立刻抬八度区间，鼓和和声同时加厚。","introDirection":"前奏用稀薄氛围和低频脉冲先建立压迫感。","endingDirection":"尾段保留一拍空白后收在长音，让宣告感悬停。","productionNotes":["保留人声颗粒感","副歌低频不要过满","避免 EDM 式过度堆叠"],"renderPrompt":"female/male pop vocal with cinematic chorus lift, restrained verse, anthemic hook, emotional climax"}
+</WORKFLOW_JSON>
+""".strip(),
+    }
+
+    monkeypatch.setattr(orchestrator, "call_stage_text", lambda stage, prompt: responses[stage])
+
+    result = deps["run_task"]("task_stub")
+
+    assert result["status"] == "completed"
+    assert result["current_stage"] == "completed"
+    assert all(result["stages"][stage]["status"] == "succeeded" for stage in result["stages"])
+    assert result["current_result"]["title"] == "白蛇·导演说明版"
+    assert result["current_result"]["coverUrl"] is None
+    assert result["current_result"]["audioUrl"] is None
+    assert isinstance(result["current_result"]["currentHighlight"], str)
+
+
+def test_run_task_persists_structured_failure_after_retries(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    deps = _configure_app(tmp_path)
+    task = deps["build_task"]("task_fail", "封神", None)
+    deps["create_task_row"](task)
+
+    import app.orchestrator as orchestrator
+
+    monkeypatch.setattr(orchestrator, "call_stage_text", lambda stage, prompt: "plain text without markers")
+
+    result = deps["run_task"]("task_fail")
+
+    assert result["status"] == "failed"
+    assert result["current_stage"] == "source_analysis"
+    assert result["error"]["failureKind"] == "missing_marker"
+    assert result["error"]["attempts"] == 3
+    assert "plain text without markers" in result["error"]["lastRawOutput"]
+
+
+def test_retry_endpoint_preserves_upstream_artifacts_and_clears_downstream(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    deps = _configure_app(tmp_path)
+    task = deps["build_task"]("task_retry", "哪吒", None)
+    deps["create_task_row"](task)
+
+    import app.orchestrator as orchestrator
+
+    def fake_call(stage: str, prompt: str) -> str:
+        if stage == "source_analysis":
+            return """
+<WORKFLOW_JSON>
+{"summary":"摘要","coreConflict":"冲突","themes":["反抗"],"emotionArc":["压抑"],"motifs":["火光"],"audienceLens":"大众流行","lyricFocus":"副歌聚焦宣告"}
+</WORKFLOW_JSON>
+""".strip()
+        if stage == "lyric_plan":
+            return """
+<WORKFLOW_JSON>
+{"concept":"歌词方向","narrativePOV":"第一人称","sections":[{"name":"主歌 A","purpose":"铺垫","emotionalBeat":"克制","imagery":["夜路"]}],"hook":"不认命","keyLines":["句子一","句子二"],"chorusDraft":["副歌一","副歌二"],"languageStyle":"电影流行","forComposition":"副歌上扬"}
+</WORKFLOW_JSON>
+""".strip()
+        return "broken"
+
+    monkeypatch.setattr(orchestrator, "call_stage_text", fake_call)
+
+    failed = deps["run_task"]("task_retry")
+    assert failed["status"] == "failed"
+    assert failed["current_stage"] == "composition_brief"
+
+    retried = deps["retry_generation_task"]("task_retry")
+
+    assert retried["stages"]["source_analysis"]["status"] == "succeeded"
+    assert retried["stages"]["lyric_plan"]["status"] == "succeeded"
+    assert retried["stages"]["composition_brief"]["status"] == "not_started"
+    assert retried["stages"]["cover_direction"]["status"] == "not_started"
+    assert retried["stages"]["audio_render"]["status"] == "not_started"

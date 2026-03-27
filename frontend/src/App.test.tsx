@@ -19,10 +19,11 @@ type StageSnapshot = {
 type Card = {
   id: string;
   title: string;
-  coverUrl: string;
+  coverUrl: string | null;
   sourceTitle: string;
   createdAt: string;
   activeStyle: string;
+  currentHighlight: string | null;
   hasAudio: boolean;
   deletedAt: string | null;
 };
@@ -35,6 +36,7 @@ type Detail = {
   createdAt: string;
   updatedAt: string;
   activeStyle: string;
+  currentHighlight: string | null;
   hasAudio: boolean;
   isTrashed: boolean;
   deletedAt: string | null;
@@ -48,6 +50,7 @@ type Detail = {
     coverUrl: string | null;
     audioUrl: string | null;
     activeStyle: string;
+    currentHighlight: string | null;
   };
 };
 
@@ -78,15 +81,18 @@ function createDetail(id: string, title: string, options?: Partial<Detail>): Det
       },
       composition_brief: {
         status: "succeeded",
-        artifact: { bpm: 92, key: "D Minor" },
+        artifact: { tempo: "92 BPM", key: "D Minor" },
       },
       cover_direction: {
         status: "succeeded",
-        artifact: { artDirection: "霓虹封面", titleLock: title, coverUrl: `https://example.com/${id}.jpg` },
+        artifact: { coverTitle: title, visualConcept: "霓虹封面" },
       },
       audio_render: {
         status: "succeeded",
-        artifact: { title: `${title}·原始音频标题`, audioUrl: `https://example.com/${id}.mp3`, durationSeconds: 24 },
+        artifact: {
+          versionTitle: `${title}·导演说明版`,
+          performanceDirection: "副歌需要明显抬升和宣告感。",
+        },
       },
     },
     currentResult: {
@@ -94,7 +100,9 @@ function createDetail(id: string, title: string, options?: Partial<Detail>): Det
       coverUrl: `https://example.com/${id}.jpg`,
       audioUrl: `https://example.com/${id}.mp3`,
       activeStyle: "电影流行",
+      currentHighlight: "命可以压我一程，压不灭我这口气。",
     },
+    currentHighlight: "命可以压我一程，压不灭我这口气。",
     ...options,
   };
 }
@@ -103,10 +111,11 @@ function toCard(detail: Detail): Card {
   return {
     id: detail.id,
     title: detail.title,
-    coverUrl: detail.coverUrl ?? "",
+    coverUrl: detail.coverUrl,
     sourceTitle: detail.sourceTitle,
     createdAt: detail.createdAt,
     activeStyle: detail.activeStyle,
+    currentHighlight: detail.currentHighlight,
     hasAudio: detail.hasAudio,
     deletedAt: detail.deletedAt,
   };
@@ -218,6 +227,60 @@ function setupFallbackDetailMock(detail: Detail) {
   return fetchMock;
 }
 
+function setupCreateFlowMock() {
+  const createdSnapshot = {
+    id: "task_created",
+    status: "queued",
+    currentStage: "source_analysis",
+    input: {
+      title: "流浪地球",
+      synopsis: "一个关于存续与选择的故事",
+    },
+    stages: {
+      source_analysis: { status: "not_started", artifact: null },
+      lyric_plan: { status: "not_started", artifact: null },
+      composition_brief: { status: "not_started", artifact: null },
+      cover_direction: { status: "not_started", artifact: null },
+      audio_render: { status: "not_started", artifact: null },
+    },
+    currentResult: {
+      title: null,
+      coverUrl: null,
+      audioUrl: null,
+      activeStyle: "创作工作台",
+      currentHighlight: null,
+    },
+    error: null,
+  };
+
+  const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+    const url = typeof input === "string" ? input : input.toString();
+    const pathname = new URL(url, "http://localhost").pathname;
+    const method = init?.method ?? "GET";
+    const json = (body: unknown, status = 200) =>
+      Promise.resolve(
+        new Response(JSON.stringify(body), {
+          status,
+          headers: { "Content-Type": "application/json" },
+        }),
+      );
+
+    if (pathname === "/generation-tasks" && method === "POST") {
+      return json({ taskId: "task_created", snapshot: createdSnapshot });
+    }
+    if (pathname === "/generation-tasks/task_created" && method === "GET") {
+      return json({ detail: "Task query failed" }, 500);
+    }
+    if (pathname === "/library/works" && method === "GET") return json([]);
+    if (pathname === "/library/trash" && method === "GET") return json([]);
+
+    return json({ detail: `Unhandled route: ${method} ${pathname}` }, 500);
+  });
+
+  vi.stubGlobal("fetch", fetchMock);
+  return fetchMock;
+}
+
 function renderApp() {
   const queryClient = new QueryClient({
     defaultOptions: {
@@ -264,8 +327,8 @@ describe("library modal flows", () => {
 
     await user.click(within(dialog).getByRole("button", { name: /音频渲染/i }));
 
-    expect(await within(dialog).findByText("已生成可播放片段")).toBeInTheDocument();
-    expect(within(dialog).getByText("哪吒·逆光版·原始音频标题")).toBeInTheDocument();
+    expect(await within(dialog).findByText("当前阶段输出导演说明，尚未生成可播放音频。")).toBeInTheDocument();
+    expect(within(dialog).getByText("哪吒·逆光版·导演说明版")).toBeInTheDocument();
   });
 
   it("renames a work inline and syncs modal plus card title", async () => {
@@ -339,5 +402,20 @@ describe("library modal flows", () => {
     const dialog = await screen.findByRole("dialog", { name: /黑客帝国·逆光版/i });
     expect(dialog).toBeInTheDocument();
     expect(within(dialog).getByRole("heading", { name: "剧情提炼" })).toBeInTheDocument();
+  });
+
+  it("keeps showing the created task snapshot instead of seeded mock data when polling fails", async () => {
+    setupCreateFlowMock();
+    renderApp();
+    const user = userEvent.setup();
+
+    await user.click(screen.getByRole("button", { name: "试试我的题材" }));
+    await user.type(screen.getByLabelText("影视题材"), "流浪地球");
+    await user.type(screen.getByLabelText("剧情简介（可选）"), "一个关于存续与选择的故事");
+    await user.click(screen.getByRole("button", { name: "生成当前版本" }));
+
+    expect(await screen.findByText("流浪地球 · 排队中")).toBeInTheDocument();
+    expect(screen.getByText(/Task query failed。当前先显示本地任务草稿，不再回退到示例数据/)).toBeInTheDocument();
+    expect(screen.queryByText("哪吒·逆光版")).not.toBeInTheDocument();
   });
 });

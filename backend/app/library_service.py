@@ -52,6 +52,7 @@ def _serialize_library_card(work: dict[str, Any]) -> dict[str, Any]:
         "sourceTitle": work["source_title"],
         "createdAt": work["created_at"],
         "activeStyle": work["active_style"],
+        "currentHighlight": work.get("current_highlight"),
         "hasAudio": work["has_audio"],
         "deletedAt": work["deleted_at"],
     }
@@ -73,6 +74,7 @@ def _serialize_detail(task: dict[str, Any]) -> dict[str, Any]:
         "createdAt": task["created_at"],
         "updatedAt": task["updated_at"],
         "activeStyle": current_result.get("activeStyle"),
+        "currentHighlight": current_result.get("currentHighlight"),
         "hasAudio": bool(current_result.get("audioUrl")),
         "isTrashed": task["is_trashed"],
         "deletedAt": task["deleted_at"],

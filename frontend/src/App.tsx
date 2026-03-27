@@ -34,8 +34,18 @@ type TaskSnapshot = {
     coverUrl: string | null;
     audioUrl: string | null;
     activeStyle: string;
+    currentHighlight: string | null;
   };
-  error: { stage: string; message: string; retryable: boolean } | null;
+  error:
+    | {
+        stage: string;
+        message: string;
+        retryable: boolean;
+        attempts?: number;
+        failureKind?: string;
+        lastRawOutput?: string | null;
+      }
+    | null;
   createdAt?: string;
   updatedAt?: string;
 };
@@ -43,10 +53,11 @@ type TaskSnapshot = {
 type LibraryWork = {
   id: string;
   title: string;
-  coverUrl: string;
+  coverUrl: string | null;
   sourceTitle: string;
   createdAt: string;
   activeStyle: string;
+  currentHighlight: string | null;
   hasAudio: boolean;
   deletedAt: string | null;
 };
@@ -59,6 +70,7 @@ type LibraryWorkDetail = {
   createdAt: string;
   updatedAt: string;
   activeStyle: string;
+  currentHighlight: string | null;
   hasAudio: boolean;
   isTrashed: boolean;
   deletedAt: string | null;
@@ -72,6 +84,7 @@ type LibraryWorkDetail = {
     coverUrl: string | null;
     audioUrl: string | null;
     activeStyle: string;
+    currentHighlight: string | null;
   };
 };
 
@@ -107,27 +120,48 @@ const STAGE_STATUS_LABELS: Record<StageStatus, string> = {
 
 const ARTIFACT_FIELD_LABELS: Record<string, string> = {
   summary: "主题摘要",
+  coreConflict: "核心冲突",
   themes: "核心主题",
   emotionArc: "情绪弧线",
   motifs: "视觉母题",
-  suggestedAudience: "目标受众",
+  audienceLens: "受众视角",
+  lyricFocus: "歌词焦点",
   concept: "歌词概念",
   sections: "段落结构",
   name: "名称",
   purpose: "作用",
   hook: "副歌锚点",
-  sourceSummary: "来源摘要",
+  narrativePOV: "叙事视角",
+  emotionalBeat: "情绪节点",
+  imagery: "意象",
+  keyLines: "关键句",
+  chorusDraft: "副歌候选",
+  languageStyle: "语言风格",
+  forComposition: "编曲指引",
   titleProposal: "标题提案",
-  bpm: "速度",
+  tempo: "速度",
   key: "调式",
   timeSignature: "拍号",
   arrangement: "配器方向",
   vocalDirection: "演唱方向",
-  structure: "结构",
-  artDirection: "视觉方向",
-  titleLock: "封面标题",
-  title: "标题",
-  durationSeconds: "时长",
+  sectionDynamics: "段落动态",
+  dynamic: "动态",
+  mixMood: "混音情绪",
+  coverTitle: "封面标题",
+  visualConcept: "视觉概念",
+  composition: "构图",
+  palette: "色盘",
+  subjectFocus: "主体焦点",
+  negativeSpace: "留白",
+  renderPrompt: "生成提示",
+  avoid: "避免元素",
+  versionTitle: "版本标题",
+  performanceDirection: "演唱说明",
+  instrumentation: "乐器编制",
+  chorusLift: "副歌抬升",
+  introDirection: "前奏方向",
+  endingDirection: "结尾方向",
+  productionNotes: "制作备注",
 };
 
 const SEEDED_EXAMPLE: TaskSnapshot = {
@@ -154,32 +188,59 @@ const SEEDED_EXAMPLE: TaskSnapshot = {
     composition_brief: {
       status: "succeeded",
       artifact: {
-        bpm: 92,
+        tempo: "92 BPM",
         key: "D Minor",
       },
     },
     cover_direction: {
       status: "succeeded",
       artifact: {
-        artDirection: "冷底热点的深夜配乐控制台封面",
+        coverTitle: "哪吒·逆光版",
+        visualConcept: "在冷色夜景里保留一束热光，像命运压迫下仍然亮起的意志。",
       },
     },
     audio_render: {
       status: "succeeded",
       artifact: {
-        durationSeconds: 24,
+        versionTitle: "哪吒·导演说明版",
+        performanceDirection: "主歌压着唱，副歌要像对命运的公开宣告。",
       },
     },
   },
   currentResult: {
     title: "哪吒·逆光版",
-    coverUrl:
-      "data:image/svg+xml;utf8,%3Csvg%20xmlns%3D%27http%3A//www.w3.org/2000/svg%27%20width%3D%27600%27%20height%3D%27600%27%20viewBox%3D%270%200%20600%20600%27%3E%3Crect%20width%3D%27600%27%20height%3D%27600%27%20fill%3D%27%23111923%27/%3E%3Ccircle%20cx%3D%27460%27%20cy%3D%27130%27%20r%3D%2780%27%20fill%3D%27%233CD6C8%27%20fill-opacity%3D%270.25%27/%3E%3Ctext%20x%3D%2760%27%20y%3D%27450%27%20fill%3D%27%23EAF0F8%27%20font-size%3D%2746%27%20font-family%3D%27sans-serif%27%3E%E5%93%AA%E5%90%92%C2%B7%E9%80%86%E5%85%89%E7%89%88%3C/text%3E%3Ctext%20x%3D%2760%27%20y%3D%27510%27%20fill%3D%27%2391A1B4%27%20font-size%3D%2722%27%20font-family%3D%27sans-serif%27%3E%E5%BD%93%E5%89%8D%E7%89%88%E6%9C%AC%20%C2%B7%20%E7%94%B5%E5%BD%B1%E6%B5%81%E8%A1%8C%3C/text%3E%3C/svg%3E",
+    coverUrl: null,
     audioUrl: null,
     activeStyle: "电影流行",
+    currentHighlight: "命可以压我一程，压不灭我这口气。",
   },
   error: null,
 };
+
+function buildDraftSnapshot(title: string, synopsis: string): TaskSnapshot {
+  const trimmedTitle = title.trim() || "未命名题材";
+  const trimmedSynopsis = synopsis.trim();
+  return {
+    id: "draft_task",
+    status: "queued",
+    currentStage: "source_analysis",
+    input: {
+      title: trimmedTitle,
+      synopsis: trimmedSynopsis ? trimmedSynopsis : null,
+    },
+    stages: Object.fromEntries(
+      STAGE_ORDER.map((stage) => [stage, { status: "not_started", artifact: null }]),
+    ) as Record<StageName, StageSnapshot>,
+    currentResult: {
+      title: null,
+      coverUrl: null,
+      audioUrl: null,
+      activeStyle: "创作工作台",
+      currentHighlight: null,
+    },
+    error: null,
+  };
+}
 
 async function parseError(response: Response, fallback: string) {
   try {
@@ -219,6 +280,7 @@ function taskSnapshotToLibraryDetail(snapshot: TaskSnapshot): LibraryWorkDetail 
     createdAt: snapshot.createdAt ?? "",
     updatedAt: snapshot.updatedAt ?? snapshot.createdAt ?? "",
     activeStyle: snapshot.currentResult.activeStyle,
+    currentHighlight: snapshot.currentResult.currentHighlight,
     hasAudio: Boolean(snapshot.currentResult.audioUrl),
     isTrashed: false,
     deletedAt: null,
@@ -296,12 +358,12 @@ function stageSummary(stage: StageName, snapshot: { stages: Record<StageName, St
   const artifact = snapshot.stages[stage].artifact;
   if (stage === "source_analysis" && artifact?.summary) return String(artifact.summary);
   if (stage === "lyric_plan" && artifact?.concept) return String(artifact.concept);
-  if (stage === "composition_brief" && artifact?.bpm) {
-    return `${String(artifact.bpm)} BPM · ${localizeValue(artifact.key ?? "")}`;
+  if (stage === "composition_brief" && artifact?.tempo) {
+    return `${String(artifact.tempo)} · ${localizeValue(artifact.key ?? "")}`;
   }
-  if (stage === "cover_direction" && artifact?.artDirection) return String(artifact.artDirection);
-  if (stage === "audio_render" && artifact?.durationSeconds) {
-    return `已生成 ${String(artifact.durationSeconds)} 秒试听片段`;
+  if (stage === "cover_direction" && artifact?.visualConcept) return String(artifact.visualConcept);
+  if (stage === "audio_render" && artifact?.performanceDirection) {
+    return String(artifact.performanceDirection);
   }
   switch (snapshot.stages[stage].status) {
     case "running":
@@ -342,6 +404,16 @@ function formatTimestamp(value: string): string {
   }).format(timestamp);
 }
 
+function renderFallbackCover(title: string, style: string, highlight?: string | null) {
+  return (
+    <div className="cover-placeholder cover-placeholder-rich">
+      <p className="cover-kicker">{localizeValue(style)}</p>
+      <strong>{title}</strong>
+      <span>{highlight?.trim() ? highlight : "文本工作流已完成当前版本摘要。"}</span>
+    </div>
+  );
+}
+
 function renderArtifactValue(value: unknown) {
   if (Array.isArray(value)) {
     return (
@@ -379,19 +451,21 @@ function renderInspector(stage: StageName, artifact: Record<string, unknown> | n
   if (stage === "cover_direction") {
     return (
       <div className="inspector-stack">
-        {artifact.coverUrl ? (
-          <div className="inspector-cover-preview">
-            <img src={String(artifact.coverUrl)} alt={String(artifact.titleLock ?? "封面预览")} />
-          </div>
-        ) : null}
+        <div className="inspector-cover-preview">
+          {renderFallbackCover(
+            localizeValue(artifact.coverTitle ?? "封面方向"),
+            "视觉导演 brief",
+            typeof artifact.visualConcept === "string" ? artifact.visualConcept : null,
+          )}
+        </div>
         <dl className="inspector-kv">
           <div>
             <dt>封面标题</dt>
-            <dd>{localizeValue(artifact.titleLock ?? "未生成")}</dd>
+            <dd>{localizeValue(artifact.coverTitle ?? "未生成")}</dd>
           </div>
           <div>
-            <dt>视觉方向</dt>
-            <dd>{localizeValue(artifact.artDirection ?? "未生成")}</dd>
+            <dt>视觉概念</dt>
+            <dd>{localizeValue(artifact.visualConcept ?? "未生成")}</dd>
           </div>
         </dl>
       </div>
@@ -401,22 +475,19 @@ function renderInspector(stage: StageName, artifact: Record<string, unknown> | n
   if (stage === "audio_render") {
     return (
       <div className="inspector-stack">
-        {artifact.audioUrl ? <audio controls src={String(artifact.audioUrl)} className="inspector-audio" /> : null}
         <dl className="inspector-kv">
           <div>
             <dt>版本标题</dt>
-            <dd>{localizeValue(artifact.title ?? "未生成")}</dd>
+            <dd>{localizeValue(artifact.versionTitle ?? "未生成")}</dd>
           </div>
           <div>
-            <dt>试听状态</dt>
-            <dd>{artifact.audioUrl ? "已生成可播放片段" : "尚未生成音频"}</dd>
+            <dt>音频状态</dt>
+            <dd>当前阶段输出导演说明，尚未生成可播放音频。</dd>
           </div>
-          {"durationSeconds" in artifact ? (
-            <div>
-              <dt>时长</dt>
-              <dd>{localizeValue(artifact.durationSeconds)} 秒</dd>
-            </div>
-          ) : null}
+          <div>
+            <dt>演唱说明</dt>
+            <dd>{localizeValue(artifact.performanceDirection ?? "未生成")}</dd>
+          </div>
         </dl>
       </div>
     );
@@ -591,7 +662,8 @@ function App() {
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [detailWorkId, isDeleteConfirmOpen]);
 
-  const activeSnapshot = mode === "seeded" || !taskQuery.data ? SEEDED_EXAMPLE : taskQuery.data;
+  const fallbackUserSnapshot = createMutation.data?.snapshot ?? buildDraftSnapshot(title, synopsis);
+  const activeSnapshot = mode === "seeded" ? SEEDED_EXAMPLE : taskQuery.data ?? fallbackUserSnapshot;
   const selectedStageArtifact = useMemo(
     () => activeSnapshot.stages[selectedStage].artifact,
     [activeSnapshot, selectedStage],
@@ -782,6 +854,11 @@ function App() {
                   {createMutation.error ? (
                     <p className="error-text">{(createMutation.error as Error).message}</p>
                   ) : null}
+                  {mode === "user" && taskQuery.error ? (
+                    <p className="error-text">
+                      {(taskQuery.error as Error).message}。当前先显示本地任务草稿，不再回退到示例数据。
+                    </p>
+                  ) : null}
                 </form>
 
                 <section className="hero-result">
@@ -789,7 +866,11 @@ function App() {
                     {activeSnapshot.currentResult.coverUrl ? (
                       <img src={activeSnapshot.currentResult.coverUrl} alt={activeSnapshot.currentResult.title ?? "封面"} />
                     ) : (
-                      <div className="cover-placeholder">封面待生成</div>
+                      renderFallbackCover(
+                        activeSnapshot.currentResult.title ?? activeSnapshot.input.title,
+                        activeSnapshot.currentResult.activeStyle,
+                        activeSnapshot.currentResult.currentHighlight,
+                      )
                     )}
                   </div>
                   <div className="result-body">
@@ -798,10 +879,13 @@ function App() {
                     <p className="subtle">
                       {activeSnapshot.input.title} · {TASK_STATUS_LABELS[activeSnapshot.status]}
                     </p>
+                    {activeSnapshot.currentResult.currentHighlight ? (
+                      <p className="subtle">{activeSnapshot.currentResult.currentHighlight}</p>
+                    ) : null}
                     {activeSnapshot.currentResult.audioUrl ? (
                       <audio controls src={activeSnapshot.currentResult.audioUrl} />
                     ) : (
-                      <div className="audio-placeholder">音频生成完成后会出现在这里</div>
+                      <div className="audio-placeholder">当前版本已生成音频导演说明，真实音频稍后接入。</div>
                     )}
                   </div>
                   <div className="status-panel">
@@ -939,11 +1023,16 @@ function App() {
                         onClick={() => setDetailWorkId(work.id)}
                       >
                         <div className="library-card-media">
-                          <img src={work.coverUrl} alt={work.title} />
+                          {work.coverUrl ? (
+                            <img src={work.coverUrl} alt={work.title} />
+                          ) : (
+                            renderFallbackCover(work.title, work.activeStyle, work.currentHighlight)
+                          )}
                         </div>
                         <div className="library-card-body">
                           <p className="eyebrow accent">{localizeValue(work.activeStyle)}</p>
                           <h3>{work.title}</h3>
+                          {work.currentHighlight ? <p className="subtle">{work.currentHighlight}</p> : null}
                           <dl className="library-meta">
                             <div>
                               <dt>生成来源</dt>
@@ -1028,7 +1117,11 @@ function App() {
                     {detailQuery.data.coverUrl ? (
                       <img src={detailQuery.data.coverUrl} alt={detailQuery.data.title} />
                     ) : (
-                      <div className="cover-placeholder">封面待生成</div>
+                      renderFallbackCover(
+                        detailQuery.data.title,
+                        detailQuery.data.activeStyle,
+                        detailQuery.data.currentHighlight,
+                      )
                     )}
                   </div>
                   <div className="master-copy">
@@ -1071,6 +1164,7 @@ function App() {
                     <p className="subtle">
                       {detailQuery.data.sourceTitle} · 创建于 {formatTimestamp(detailQuery.data.createdAt)}
                     </p>
+                    {detailQuery.data.currentHighlight ? <p className="subtle">{detailQuery.data.currentHighlight}</p> : null}
                     {detailQuery.data.deletedAt ? (
                       <p className="subtle">移入垃圾箱于 {formatTimestamp(detailQuery.data.deletedAt)}</p>
                     ) : null}
@@ -1082,7 +1176,7 @@ function App() {
                         className="detail-audio"
                       />
                     ) : (
-                      <div className="audio-placeholder">当前作品还没有音频，但每个节点内容仍可查看。</div>
+                      <div className="audio-placeholder">当前作品已完成文本化音频导演说明，但还没有真实音频。</div>
                     )}
                     {renameMutation.error ? (
                       <p className="error-text">{(renameMutation.error as Error).message}</p>
