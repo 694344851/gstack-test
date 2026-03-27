@@ -26,6 +26,36 @@ source .venv/bin/activate
 python3 -m app.worker
 ```
 
+Text workflow configuration:
+
+- `GSTACK_TEXT_API_URL` — your text generation endpoint
+- `GSTACK_TEXT_API_KEY` — optional bearer token
+- `GSTACK_TEXT_API_MODEL` — optional model name forwarded in the request body
+- `GSTACK_TEXT_API_REQUEST_FORMAT` — `prompt` or `chat_completions`
+- `GSTACK_TEXT_API_PROMPT_FIELD` — optional request JSON field name for the prompt, defaults to `prompt`
+- `GSTACK_TEXT_API_RESPONSE_TEXT_PATH` — optional dot path for the text field in the JSON response
+- `GSTACK_TEXT_API_TIMEOUT_SECONDS` — request timeout in seconds, defaults to `180`
+
+If `GSTACK_TEXT_API_URL` is unset, generation tasks will fail fast with a configuration error instead of silently falling back to template data.
+
+Recommended setup:
+
+```bash
+cp .env.example .env.local
+```
+
+Then edit `.env.local` with your real API values. `scripts/dev-up.sh` will load `.env.local` automatically.
+
+For Zhipu GLM / BigModel, the default `.env.example` is already set to the common `chat/completions` shape:
+
+```bash
+GSTACK_TEXT_API_URL=https://open.bigmodel.cn/api/paas/v4/chat/completions
+GSTACK_TEXT_API_MODEL=glm-5
+GSTACK_TEXT_API_REQUEST_FORMAT=chat_completions
+```
+
+Its response usually works without `GSTACK_TEXT_API_RESPONSE_TEXT_PATH`, because the backend already recognizes `choices[0].message.content`.
+
 ## Frontend
 
 ```bash
@@ -49,6 +79,20 @@ Optional ports:
 
 ```bash
 BACKEND_PORT=8010 FRONTEND_PORT=4173 bash scripts/dev-up.sh
+```
+
+Example with a real text API:
+
+```bash
+cp .env.example .env.local
+# edit .env.local
+BACKEND_PORT=8010 FRONTEND_PORT=4173 bash scripts/dev-up.sh
+```
+
+Direct API smoke test:
+
+```bash
+./scripts/test-api.sh
 ```
 
 Stop everything:
