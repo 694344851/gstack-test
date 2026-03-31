@@ -7,7 +7,19 @@ import sqlite3
 from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, Generator
+
+from sqlalchemy import (
+    Column,
+    Integer,
+    JSON,
+    String,
+    create_engine,
+    select,
+    update,
+    delete,
+)
+from sqlalchemy.orm import DeclarativeBase, Session, sessionmaker
 
 
 DB_ENV = "GSTACK_TEST_DB_PATH"
@@ -23,22 +35,52 @@ def get_db_path() -> Path:
     return Path(os.environ.get(DB_ENV, DEFAULT_DB))
 
 
+def get_engine_url() -> str:
+    path = get_db_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    return f"sqlite:///{path}"
+
+
+class Base(DeclarativeBase):
+    pass
+
+
+class GenerationTask(Base):
+    __tablename__ = "generation_tasks"
+
+    id = Column(String, primary_key=True)
+    status = Column(String, nullable=False)
+    current_stage = Column(String, nullable=False)
+    input_json = Column(JSON, nullable=False)
+    stage_artifacts_json = Column(JSON, nullable=False)
+    current_result_json = Column(JSON, nullable=False)
+    error_json = Column(JSON, nullable=True)
+    claimed_by = Column(String, nullable=True)
+    is_trashed = Column(Integer, nullable=False, default=0)
+    deleted_at = Column(String, nullable=True)
+    created_at = Column(String, nullable=False)
+    updated_at = Column(String, nullable=False)
+
+
+def _get_engine():
+    # Create engine dynamically based on current environment variable
+    return create_engine(get_engine_url(), connect_args={"check_same_thread": False})
+
+
 def init_db() -> None:
     path = get_db_path()
     path.parent.mkdir(parents=True, exist_ok=True)
     with sqlite3.connect(path) as conn:
-        # 整个创作流程都持久化在这一张任务表里。
-        # 作品库不是单独存表，而是后续从已完成任务里投影出来。
         conn.execute(
             """
             CREATE TABLE IF NOT EXISTS generation_tasks (
                 id TEXT PRIMARY KEY,
                 status TEXT NOT NULL,
                 current_stage TEXT NOT NULL,
-                input_json TEXT NOT NULL,
-                stage_artifacts_json TEXT NOT NULL,
-                current_result_json TEXT NOT NULL,
-                error_json TEXT,
+                input_json JSON NOT NULL,
+                stage_artifacts_json JSON NOT NULL,
+                current_result_json JSON NOT NULL,
+                error_json JSON,
                 claimed_by TEXT,
                 is_trashed INTEGER NOT NULL DEFAULT 0,
                 deleted_at TEXT,
@@ -54,9 +96,25 @@ def init_db() -> None:
             conn.execute("ALTER TABLE generation_tasks ADD COLUMN deleted_at TEXT")
         conn.commit()
 
+    engine = _get_engine()
+    Base.metadata.create_all(bind=engine)
+
+
+@contextmanager
+def get_session() -> Generator[Session, None, None]:
+    init_db()  # Ensure tables exist
+    engine = _get_engine()
+    session_factory = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+    session = session_factory()
+    try:
+        yield session
+    finally:
+        session.close()
+
 
 @contextmanager
 def connect() -> sqlite3.Connection:
+    """Legacy connect function for tests."""
     init_db()
     conn = sqlite3.connect(get_db_path())
     conn.row_factory = sqlite3.Row
@@ -66,58 +124,53 @@ def connect() -> sqlite3.Connection:
         conn.close()
 
 
-def create_task_row(task: dict[str, Any]) -> None:
-    with connect() as conn:
-        conn.execute(
-            """
-            INSERT INTO generation_tasks (
-                id, status, current_stage, input_json, stage_artifacts_json,
-                current_result_json, error_json, claimed_by, is_trashed, deleted_at, created_at, updated_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """,
-            (
-                task["id"],
-                task["status"],
-                task["current_stage"],
-                json.dumps(task["input"], ensure_ascii=False),
-                json.dumps(task["stages"], ensure_ascii=False),
-                json.dumps(task["current_result"], ensure_ascii=False),
-                json.dumps(task["error"], ensure_ascii=False) if task["error"] else None,
-                task.get("claimed_by"),
-                int(bool(task.get("is_trashed", False))),
-                task.get("deleted_at"),
-                task["created_at"],
-                task["updated_at"],
-            ),
+def create_task_row(task_dict: dict[str, Any]) -> None:
+    with get_session() as session:
+        task = GenerationTask(
+            id=task_dict["id"],
+            status=task_dict["status"],
+            current_stage=task_dict["current_stage"],
+            input_json=task_dict["input"],
+            stage_artifacts_json=task_dict["stages"],
+            current_result_json=task_dict["current_result"],
+            error_json=task_dict["error"],
+            claimed_by=task_dict.get("claimed_by"),
+            is_trashed=int(bool(task_dict.get("is_trashed", False))),
+            deleted_at=task_dict.get("deleted_at"),
+            created_at=task_dict["created_at"],
+            updated_at=task_dict["updated_at"],
         )
-        conn.commit()
+        session.add(task)
+        session.commit()
 
 
-def save_task(task: dict[str, Any]) -> None:
-    # 每次阶段推进时都会整体回写任务快照，这样前端只需要轮询这一份状态，
-    # 不需要自己拼接零散的增量更新。
-    task["updated_at"] = now_iso()
-    with connect() as conn:
-        conn.execute(
-            """
-            UPDATE generation_tasks
-            SET status = ?, current_stage = ?, input_json = ?, stage_artifacts_json = ?,
-                current_result_json = ?, error_json = ?, claimed_by = ?, updated_at = ?
-            WHERE id = ?
-            """,
-            (
-                task["status"],
-                task["current_stage"],
-                json.dumps(task["input"], ensure_ascii=False),
-                json.dumps(task["stages"], ensure_ascii=False),
-                json.dumps(task["current_result"], ensure_ascii=False),
-                json.dumps(task["error"], ensure_ascii=False) if task["error"] else None,
-                task.get("claimed_by"),
-                task["updated_at"],
-                task["id"],
-            ),
+def save_task(task_dict: dict[str, Any]) -> None:
+    task_dict["updated_at"] = now_iso()
+    with get_session() as session:
+        stmt = (
+            update(GenerationTask)
+            .where(GenerationTask.id == task_dict["id"])
+            .values(
+                status=task_dict["status"],
+                current_stage=task_dict["current_stage"],
+                input_json=task_dict["input"],
+                stage_artifacts_json=task_dict["stages"],
+                current_result_json=task_dict["current_result"],
+                error_json=task_dict["error"],
+                claimed_by=task_dict.get("claimed_by"),
+                updated_at=task_dict["updated_at"],
+            )
         )
-        conn.commit()
+        session.execute(stmt)
+        session.commit()
+
+
+def _deserialize_json_field(value: Any) -> Any:
+    if value is None or isinstance(value, (dict, list)):
+        return value
+    if isinstance(value, str):
+        return json.loads(value)
+    raise TypeError(f"Unsupported JSON field type: {type(value)!r}")
 
 
 def row_to_task(row: sqlite3.Row | None) -> dict[str, Any] | None:
@@ -127,10 +180,10 @@ def row_to_task(row: sqlite3.Row | None) -> dict[str, Any] | None:
         "id": row["id"],
         "status": row["status"],
         "current_stage": row["current_stage"],
-        "input": json.loads(row["input_json"]),
-        "stages": json.loads(row["stage_artifacts_json"]),
-        "current_result": json.loads(row["current_result_json"]),
-        "error": json.loads(row["error_json"]) if row["error_json"] else None,
+        "input": _deserialize_json_field(row["input_json"]),
+        "stages": _deserialize_json_field(row["stage_artifacts_json"]),
+        "current_result": _deserialize_json_field(row["current_result_json"]),
+        "error": _deserialize_json_field(row["error_json"]),
         "claimed_by": row["claimed_by"],
         "is_trashed": bool(row["is_trashed"]),
         "deleted_at": row["deleted_at"],
@@ -139,135 +192,122 @@ def row_to_task(row: sqlite3.Row | None) -> dict[str, Any] | None:
     }
 
 
+def model_to_task_dict(task: GenerationTask | None) -> dict[str, Any] | None:
+    if task is None:
+        return None
+    return {
+        "id": task.id,
+        "status": task.status,
+        "current_stage": task.current_stage,
+        "input": task.input_json,
+        "stages": task.stage_artifacts_json,
+        "current_result": task.current_result_json,
+        "error": task.error_json,
+        "claimed_by": task.claimed_by,
+        "is_trashed": bool(task.is_trashed),
+        "deleted_at": task.deleted_at,
+        "created_at": task.created_at,
+        "updated_at": task.updated_at,
+    }
+
+
 def get_task(task_id: str) -> dict[str, Any] | None:
-    with connect() as conn:
-        row = conn.execute(
-            "SELECT * FROM generation_tasks WHERE id = ?",
-            (task_id,),
-        ).fetchone()
-    return row_to_task(row)
+    with get_session() as session:
+        task = session.get(GenerationTask, task_id)
+        return model_to_task_dict(task)
 
 
-def _row_to_library_work(row: sqlite3.Row) -> dict[str, Any]:
-    # v1 的作品卡片直接由任务记录映射出来，避免再维护一张独立作品表，
-    # 从而减少双写和状态漂移。
-    current_result = json.loads(row["current_result_json"])
-    task_input = json.loads(row["input_json"])
+def _model_to_library_work(task: GenerationTask) -> dict[str, Any]:
+    current_result = task.current_result_json
+    task_input = task.input_json
 
     if not isinstance(current_result, dict) or not isinstance(task_input, dict):
         raise ValueError("task payload must be an object")
 
-    title = current_result["title"]
-    cover_url = current_result.get("coverUrl")
-    active_style = current_result["activeStyle"]
-    current_highlight = current_result.get("currentHighlight")
-    source_title = task_input["title"]
-
-    if not isinstance(title, str) or not title.strip():
-        raise ValueError("missing current_result.title")
-    if not isinstance(active_style, str) or not active_style.strip():
-        raise ValueError("missing current_result.activeStyle")
-    if not isinstance(source_title, str) or not source_title.strip():
-        raise ValueError("missing input.title")
-    if cover_url is not None and (not isinstance(cover_url, str) or not cover_url.strip()):
-        raise ValueError("invalid current_result.coverUrl")
-    if current_highlight is not None and (not isinstance(current_highlight, str) or not current_highlight.strip()):
-        raise ValueError("invalid current_result.currentHighlight")
-
     return {
-        "id": row["id"],
-        "title": title,
-        "cover_url": cover_url,
-        "source_title": source_title,
-        "created_at": row["created_at"],
-        "active_style": active_style,
-        "current_highlight": current_highlight,
+        "id": task.id,
+        "title": current_result["title"],
+        "cover_url": current_result.get("coverUrl"),
+        "source_title": task_input["title"],
+        "created_at": task.created_at,
+        "active_style": current_result["activeStyle"],
+        "current_highlight": current_result.get("currentHighlight"),
         "has_audio": bool(current_result.get("audioUrl")),
-        "deleted_at": row["deleted_at"],
+        "deleted_at": task.deleted_at,
     }
 
 
 def list_library_works() -> list[dict[str, Any]]:
-    with connect() as conn:
-        rows = conn.execute(
-            """
-            SELECT id, input_json, current_result_json, created_at, deleted_at
-            FROM generation_tasks
-            WHERE status = 'completed'
-              AND is_trashed = 0
-            ORDER BY created_at DESC
-            """
-        ).fetchall()
+    with get_session() as session:
+        stmt = (
+            select(GenerationTask)
+            .where(GenerationTask.status == "completed", GenerationTask.is_trashed == 0)
+            .order_by(GenerationTask.created_at.desc())
+        )
+        tasks = session.execute(stmt).scalars().all()
 
-    works: list[dict[str, Any]] = []
-    for row in rows:
-        try:
-            works.append(_row_to_library_work(row))
-        except (KeyError, TypeError, ValueError, json.JSONDecodeError) as exc:
-            # 单条脏数据不能把整个作品库接口拖挂，所以这里选择跳过并记日志。
-            logger.warning("Skipping malformed library work for task %s: %s", row["id"], exc)
-    return works
+        works: list[dict[str, Any]] = []
+        for task in tasks:
+            try:
+                works.append(_model_to_library_work(task))
+            except (KeyError, TypeError, ValueError) as exc:
+                logger.warning("Skipping malformed library work for task %s: %s", task.id, exc)
+        return works
 
 
 def list_trashed_library_works() -> list[dict[str, Any]]:
-    with connect() as conn:
-        rows = conn.execute(
-            """
-            SELECT id, input_json, current_result_json, created_at, deleted_at
-            FROM generation_tasks
-            WHERE status = 'completed'
-              AND is_trashed = 1
-            ORDER BY deleted_at DESC, created_at DESC
-            """
-        ).fetchall()
+    with get_session() as session:
+        stmt = (
+            select(GenerationTask)
+            .where(GenerationTask.status == "completed", GenerationTask.is_trashed == 1)
+            .order_by(GenerationTask.deleted_at.desc(), GenerationTask.created_at.desc())
+        )
+        tasks = session.execute(stmt).scalars().all()
 
-    works: list[dict[str, Any]] = []
-    for row in rows:
-        try:
-            works.append(_row_to_library_work(row))
-        except (KeyError, TypeError, ValueError, json.JSONDecodeError) as exc:
-            logger.warning("Skipping malformed trashed library work for task %s: %s", row["id"], exc)
-    return works
+        works: list[dict[str, Any]] = []
+        for task in tasks:
+            try:
+                works.append(_model_to_library_work(task))
+            except (KeyError, TypeError, ValueError) as exc:
+                logger.warning("Skipping malformed trashed library work for task %s: %s", task.id, exc)
+        return works
 
 
 def mark_task_trashed(task_id: str, deleted_at: str) -> bool:
-    with connect() as conn:
-        cursor = conn.execute(
-            """
-            UPDATE generation_tasks
-            SET is_trashed = 1, deleted_at = ?, updated_at = ?
-            WHERE id = ?
-            """,
-            (deleted_at, deleted_at, task_id),
+    with get_session() as session:
+        stmt = (
+            update(GenerationTask)
+            .where(GenerationTask.id == task_id)
+            .values(is_trashed=1, deleted_at=deleted_at, updated_at=deleted_at)
         )
-        conn.commit()
-        return cursor.rowcount > 0
+        result = session.execute(stmt)
+        session.commit()
+        return result.rowcount > 0
 
 
 def restore_trashed_task(task_id: str, updated_at: str) -> bool:
-    with connect() as conn:
-        cursor = conn.execute(
-            """
-            UPDATE generation_tasks
-            SET is_trashed = 0, deleted_at = NULL, updated_at = ?
-            WHERE id = ?
-            """,
-            (updated_at, task_id),
+    with get_session() as session:
+        stmt = (
+            update(GenerationTask)
+            .where(GenerationTask.id == task_id)
+            .values(is_trashed=0, deleted_at=None, updated_at=updated_at)
         )
-        conn.commit()
-        return cursor.rowcount > 0
+        result = session.execute(stmt)
+        session.commit()
+        return result.rowcount > 0
 
 
 def delete_task_row(task_id: str) -> bool:
-    with connect() as conn:
-        cursor = conn.execute("DELETE FROM generation_tasks WHERE id = ?", (task_id,))
-        conn.commit()
-        return cursor.rowcount > 0
+    with get_session() as session:
+        stmt = delete(GenerationTask).where(GenerationTask.id == task_id)
+        result = session.execute(stmt)
+        session.commit()
+        return result.rowcount > 0
 
 
 def claim_next_task(worker_id: str) -> dict[str, Any] | None:
     with connect() as conn:
-        # 先拿写锁再查队列，避免多个 worker 同时抢到同一条 queued 任务。
+        # Lock before selecting to keep multiple workers from claiming the same task.
         conn.execute("BEGIN IMMEDIATE")
         row = conn.execute(
             """
@@ -281,6 +321,7 @@ def claim_next_task(worker_id: str) -> dict[str, Any] | None:
         if task is None:
             conn.commit()
             return None
+
         task["status"] = "running"
         task["claimed_by"] = worker_id
         task["updated_at"] = now_iso()

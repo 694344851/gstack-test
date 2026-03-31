@@ -16,7 +16,7 @@ if str(BACKEND_ROOT) not in sys.path:
 
 def _configure_app(tmp_path: Path):
     os.environ["GSTACK_TEST_DB_PATH"] = str(tmp_path / "test.db")
-    from app.db import connect, create_task_row, get_task, init_db
+    from app.db import claim_next_task, connect, create_task_row, get_task, init_db
     from app.main import (
         CreateTaskRequest,
         RenameWorkRequest,
@@ -38,6 +38,7 @@ def _configure_app(tmp_path: Path):
         "CreateTaskRequest": CreateTaskRequest,
         "RenameWorkRequest": RenameWorkRequest,
         "build_task": build_task,
+        "claim_next_task": claim_next_task,
         "connect": connect,
         "create_generation_task": create_generation_task,
         "create_task_row": create_task_row,
@@ -182,6 +183,36 @@ def test_init_db_backfills_trash_columns_for_existing_db(tmp_path: Path) -> None
         columns = {row[1] for row in conn.execute("PRAGMA table_info(generation_tasks)").fetchall()}
 
     assert {"is_trashed", "deleted_at"}.issubset(columns)
+
+
+def test_claim_next_task_claims_oldest_queued_task_once(tmp_path: Path) -> None:
+    deps = _configure_app(tmp_path)
+    build_task = deps["build_task"]
+
+    older = build_task("task_older", "???", None)
+    older["created_at"] = "2026-03-25T08:00:00+00:00"
+    older["updated_at"] = older["created_at"]
+    newer = build_task("task_newer", "???", None)
+    newer["created_at"] = "2026-03-26T08:00:00+00:00"
+    newer["updated_at"] = newer["created_at"]
+
+    deps["create_task_row"](newer)
+    deps["create_task_row"](older)
+
+    first = deps["claim_next_task"]("worker-a")
+    second = deps["claim_next_task"]("worker-b")
+    exhausted = deps["claim_next_task"]("worker-c")
+
+    assert first is not None
+    assert first["id"] == "task_older"
+    assert first["status"] == "running"
+    assert first["claimed_by"] == "worker-a"
+
+    assert second is not None
+    assert second["id"] == "task_newer"
+    assert second["claimed_by"] == "worker-b"
+
+    assert exhausted is None
 
 
 def test_create_task_returns_queued_snapshot(tmp_path: Path) -> None:
