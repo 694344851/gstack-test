@@ -75,9 +75,10 @@ def build_lyric_plan_prompt(task_input: dict[str, Any], source_analysis: dict[st
 4. JSON 必须包含：
 concept, narrativePOV, sections, hook, keyLines, chorusDraft, languageStyle, forComposition
 5. sections 必须是对象数组，每项包含：
-name, purpose, emotionalBeat, imagery
-6. keyLines 与 chorusDraft 必须给出可直接继续创作的句子。
-7. 这是整条链路的质量锚点，语言要像专业创作工作台，不要像聊天回答。
+name, purpose, emotionalBeat, imagery；其中 imagery 必须是字符串数组，不能是单个字符串。
+6. keyLines 必须是至少 2 条字符串组成的数组。
+7. chorusDraft 必须是至少 2 条字符串组成的数组，不能是单个长句字符串。
+8. 这是整条链路的质量锚点，语言要像专业创作工作台，不要像聊天回答。
 """
 
 
@@ -93,8 +94,10 @@ def build_composition_brief_prompt(task_input: dict[str, Any], lyric_plan: dict[
 3. 不要输出 markdown，不要解释，不要寒暄。
 4. JSON 必须包含：
 titleProposal, tempo, key, timeSignature, arrangement, vocalDirection, sectionDynamics, mixMood
-5. sectionDynamics 必须是对象数组，每项包含 section 和 dynamic。
-6. 结果必须明显消费 lyric_plan，不要只给 BPM 和调式。
+5. titleProposal、tempo、key、timeSignature、vocalDirection、mixMood 都必须是字符串；tempo 也必须写成字符串，例如 "92 BPM"，不要返回数字。
+6. arrangement 必须是字符串数组，不能返回对象。
+7. sectionDynamics 必须是对象数组，每项包含 section 和 dynamic，二者都必须是字符串。
+8. 结果必须明显消费 lyric_plan，不要只给 BPM 和调式。
 """
 
 
@@ -110,8 +113,9 @@ def build_cover_direction_prompt(task_input: dict[str, Any], composition_brief: 
 3. 不要输出 markdown，不要解释，不要寒暄。
 4. JSON 必须包含：
 coverTitle, visualConcept, composition, palette, subjectFocus, negativeSpace, renderPrompt, avoid
-5. palette 与 avoid 必须是数组。
-6. 不要返回 coverUrl。
+5. coverTitle、visualConcept、composition、subjectFocus、negativeSpace、renderPrompt 都必须是字符串。
+6. palette 与 avoid 都必须是字符串数组，不能返回对象或单个字符串。
+7. 不要返回 coverUrl。
 """
 
 
@@ -135,8 +139,9 @@ def build_audio_render_prompt(
 3. 不要输出 markdown，不要解释，不要寒暄。
 4. JSON 必须包含：
 versionTitle, performanceDirection, instrumentation, chorusLift, introDirection, endingDirection, productionNotes, renderPrompt
-5. instrumentation 与 productionNotes 必须是数组。
-6. 不要返回 audioUrl。
+5. versionTitle、performanceDirection、chorusLift、introDirection、endingDirection、renderPrompt 都必须是字符串。
+6. instrumentation 与 productionNotes 都必须是字符串数组，不能返回对象或单个字符串。
+7. 不要返回 audioUrl。
 """
 
 

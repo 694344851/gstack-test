@@ -189,12 +189,13 @@ def run_task(task_id: str) -> dict[str, Any]:
             }
             save_task(task)
             logger.error(
-                "task=%s stage=%s failed kind=%s attempts=%s message=%s",
+                "task=%s stage=%s failed kind=%s attempts=%s message=%s raw_output=%r",
                 task["id"],
                 stage,
                 exc.failure_kind,
                 exc.attempts,
                 exc.message,
+                exc.last_raw_output,
             )
             return task
         except Exception as exc:  # noqa: BLE001

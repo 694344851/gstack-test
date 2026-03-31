@@ -59,6 +59,97 @@ def test_execute_stage_text_retries_and_raises_schema_validation() -> None:
     assert exc_info.value.attempts == 3
 
 
+def test_execute_stage_text_surfaces_schema_path_for_nested_list_errors() -> None:
+    from app.stage_schemas import LyricPlanArtifact
+
+    def runner(_: str) -> str:
+        return """
+<WORKFLOW_JSON>
+{
+  "concept": "歌词方向",
+  "narrativePOV": "第一人称",
+  "sections": [
+    {
+      "name": "主歌 A",
+      "purpose": "铺垫",
+      "emotionalBeat": "克制",
+      "imagery": "夜路"
+    }
+  ],
+  "hook": "不认命",
+  "keyLines": ["句子一", "句子二"],
+  "chorusDraft": ["副歌一", "副歌二"],
+  "languageStyle": "电影流行",
+  "forComposition": "副歌上扬"
+}
+</WORKFLOW_JSON>
+""".strip()
+
+    with pytest.raises(StageExecutionFailure) as exc_info:
+        execute_stage_text(schema=LyricPlanArtifact, prompt="prompt", text_runner=runner)
+
+    assert exc_info.value.failure_kind == "schema_validation"
+    assert exc_info.value.message == "Schema 校验失败: sections.0.imagery: Input should be a valid list"
+
+
+def test_execute_stage_text_retries_with_validation_feedback() -> None:
+    from app.stage_schemas import LyricPlanArtifact
+
+    prompts: list[str] = []
+
+    def runner(prompt: str) -> str:
+        prompts.append(prompt)
+        if len(prompts) == 1:
+            return """
+<WORKFLOW_JSON>
+{
+  "concept": "歌词方向",
+  "narrativePOV": "第一人称",
+  "sections": [
+    {
+      "name": "主歌 A",
+      "purpose": "铺垫",
+      "emotionalBeat": "克制",
+      "imagery": "夜路"
+    }
+  ],
+  "hook": "不认命",
+  "keyLines": ["句子一", "句子二"],
+  "chorusDraft": ["副歌一", "副歌二"],
+  "languageStyle": "电影流行",
+  "forComposition": "副歌上扬"
+}
+</WORKFLOW_JSON>
+""".strip()
+        return """
+<WORKFLOW_JSON>
+{
+  "concept": "歌词方向",
+  "narrativePOV": "第一人称",
+  "sections": [
+    {
+      "name": "主歌 A",
+      "purpose": "铺垫",
+      "emotionalBeat": "克制",
+      "imagery": ["夜路"]
+    }
+  ],
+  "hook": "不认命",
+  "keyLines": ["句子一", "句子二"],
+  "chorusDraft": ["副歌一", "副歌二"],
+  "languageStyle": "电影流行",
+  "forComposition": "副歌上扬"
+}
+</WORKFLOW_JSON>
+""".strip()
+
+    artifact = execute_stage_text(schema=LyricPlanArtifact, prompt="prompt", text_runner=runner)
+
+    assert artifact["sections"][0]["imagery"] == ["夜路"]
+    assert len(prompts) == 2
+    assert "sections.0.imagery: Input should be a valid list" in prompts[1]
+
+
 def test_execute_stage_text_returns_validated_artifact() -> None:
     def runner(_: str) -> str:
         return """
